@@ -39,6 +39,9 @@ class SimParams:
     observe_s: float = 0.10          # frame wait plus inference
     # FOMO at 96x96 reports centroids on a 12x12 grid and one class per cell; 0 disables this.
     fomo_cells: int = 0
+    # Chance per frame of a single-frame phantom ball when the real one is unseen. Real
+    # phantoms such as an orange shoe persist across frames, which this does not model.
+    false_ball_rate: float = 0.0
 
 
 @dataclass
@@ -82,6 +85,10 @@ class SimPerception:
         w.time_s += w.params.observe_s
         self._seq += 1
         ball = self._project(BALL, w.ball_x, w.ball_y)
+        rate = w.params.false_ball_rate
+        # Checking rate first leaves the random stream untouched when phantoms are off.
+        if ball is None and rate > 0 and w.rng.random() < rate:
+            ball = Detection(BALL, w.rng.uniform(0.0, 1.0), w.rng.uniform(0.3, 1.0), 0.6)
         goal = self._project(GOAL, w.params.field_w / 2, w.params.field_h)
         cells = w.params.fomo_cells
         if cells:

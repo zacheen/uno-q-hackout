@@ -30,6 +30,7 @@ VARIANTS = {
     "detector misses more": {"detect_far_m": BASE.detect_far_m * 0.5},
     "camera tilted 10 deg less": {"cam_pitch_deg": BASE.cam_pitch_deg - 10},
     "FOMO 12x12 grid": {"fomo_cells": 12},
+    "phantom balls 5%": {"false_ball_rate": 0.05},
 }
 
 

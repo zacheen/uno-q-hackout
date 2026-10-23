@@ -6,7 +6,9 @@ from control import BALL, BallGoalController, ControlConfig, Detection, Detector
 from hardware import LineSensorGuard
 from runtime import EpisodeConfig, RunLog, run_episode
 
-CFG = EpisodeConfig(time_limit_s=10.0, max_frame_age_s=0.5, observe_wait_s=0.1)
+# A back-off unlike any controller move, so counting it never picks up a recover pulse.
+CFG = EpisodeConfig(time_limit_s=10.0, max_frame_age_s=0.5, observe_wait_s=0.1,
+                    back_off=Move("backward", 99, 77))
 
 
 class _Script:
@@ -79,7 +81,8 @@ def test_ends_at_the_time_limit():
 
 def test_missing_ball_waits_instead_of_moving():
     executor = _Recorder()
-    _run(_Script(_obs(), _obs(ball=None), None), executor)
+    # The ball ends the opening search and is approached, then vanishes from the centre.
+    _run(_Script(_obs(), _obs(), _obs(ball=None), None), executor)
     assert executor.calls[-1][0] == "wait"
 
 
@@ -110,7 +113,7 @@ def test_halt_ends_the_run_and_the_last_log_row_carries_its_reason():
     with tempfile.TemporaryDirectory() as tmp:
         log = RunLog(Path(tmp))
         controller = BallGoalController(ControlConfig(search_when_lost=False))
-        reason = _run(_Script(_obs(), *[_obs(ball=None)] * 5), controller=controller, log=log)
+        reason = _run(_Script(_obs(), _obs(), *[_obs(ball=None)] * 5), controller=controller, log=log)
         log.close()
         with log.path.open(encoding="utf-8") as f:
             rows = list(csv.DictReader(f))

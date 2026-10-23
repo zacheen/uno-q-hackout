@@ -1,4 +1,5 @@
 import math
+from collections import deque
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Union
@@ -86,7 +87,7 @@ class ControlConfig:
     strafe_speed: int = 140
     push_speed: int = 170
     min_pulse_ms: int = 80
-    max_turn_ms: int = 220
+    max_turn_ms: int = 220           # caps centring turns only; search and scan turn look_step_ms
     max_approach_ms: int = 300       # also the length of backward pulses in search and recover
     strafe_ms: int = 150
     push_ms: int = 250
@@ -95,9 +96,10 @@ class ControlConfig:
     approach_ms_per_unit: float = 900.0  # forward pulse length per unit of gap between ball.y and near_y
 
     # Measure both on the robot. turn_rad_per_speed_ms = radians turned by a rotate pulse
-    # (protractor) / (speed * ms) and assumes the angle is linear in both, so measure
-    # again after changing turn_speed or max_turn_ms. hfov_deg comes from a ruler at a
-    # known distance.
+    # (protractor) / (speed * ms) and assumes the angle is linear in both. Short pulses are
+    # expected to lose more to motor spin-up, so measure with pulses near look_step_ms, which
+    # moves with this value, and again after changing turn_speed, hfov_deg or look_step_frac.
+    # hfov_deg comes from a ruler at a known distance.
     hfov_deg: float = 70.0
     turn_rad_per_speed_ms: float = 1.2e-5
     align_angle_deg: float = 6.0     # remembered goal this close behind the ball counts as lined up
@@ -110,6 +112,18 @@ class ControlConfig:
     max_orbit_pulses: int = 24       # give up lining up and push anyway after this many pulses
     search_back_pulses: int = 2      # back off after each fruitless lap to uncover a ball at the bumper
     max_search_laps: int = 3
+    # Search and scan turn this fraction of hfov between looks. Half leaves enough overlap
+    # that a narrower lens or a faster turn than calibrated still leaves no blind gap.
+    look_step_frac: float = 0.5
+    # A ball last seen this close to an image edge rolled out of view, so the search starts
+    # at once toward that edge and skips ball_lost_grace.
+    edge_band: float = 0.15
+    # Sightings within the last confirm_window frames that end a search; scan and recover
+    # accept a single sighting. Raise to 2 if detect_only shows phantom balls flickering
+    # in single frames. In simulation 2 gained a few goals against such phantoms, lost a few
+    # when the detector missed more, and a phantom that persists passes it anyway.
+    confirm_hits: int = 1
+    confirm_window: int = 3
 
     def __post_init__(self) -> None:
         # Phase handlers hand over to each other within one step, so overlapping bands
@@ -124,24 +138,44 @@ class ControlConfig:
         for name in ("max_push_pulses", "max_orbit_pulses"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be >= 1")
-        # pulses_per_lap and the scan's return turn divide by these, and a 0 placeholder
-        # would only crash on the first search or scan.
+        # look_step_ms and the scan's return turn divide by turn_speed and turn_rad_per_speed_ms.
         # The pulse lengths feed Move, which rejects 0 because firmware treats it as non-stop.
         for name in ("turn_speed", "max_turn_ms", "turn_rad_per_speed_ms",
                      "min_pulse_ms", "max_approach_ms", "strafe_ms", "push_ms"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be > 0")
+        # pulses_per_lap divides by the look step, and tan(hfov / 2) breaks at 180 degrees.
+        if not 0 < self.hfov_deg < 180:
+            raise ValueError("hfov_deg must be in (0, 180)")
+        if not 0 < self.look_step_frac <= 1:
+            raise ValueError("look_step_frac must be in (0, 1]")
+        # At 0.5 or more every image column counts as an edge and the grace wait never runs.
+        if not 0 <= self.edge_band < 0.5:
+            raise ValueError("edge_band must be in [0, 0.5)")
+        if not 1 <= self.confirm_hits <= self.confirm_window:
+            raise ValueError("confirm_hits must be between 1 and confirm_window")
+        # The firmware clamps pulses to 5000 ms while Python waits the full length it asked for.
+        if self.look_step_ms > 5000:
+            raise ValueError("look_step_ms exceeds the firmware's 5000 ms pulse limit")
+
+    @property
+    def look_step_rad(self) -> float:
+        return self.look_step_frac * math.radians(self.hfov_deg)
+
+    @property
+    def look_step_ms(self) -> int:
+        """Rotate pulse length that turns one look step.
+
+        Search and scan both turn by this, so turn_rad_per_speed_ms is the first value
+        to calibrate. In simulation, turns 40% slower than assumed cost about a quarter
+        of the goals.
+        """
+        return max(1, round(self.look_step_rad / (self.turn_speed * self.turn_rad_per_speed_ms)))
 
     @property
     def pulses_per_lap(self) -> int:
-        """Full-length rotate pulses for one full turn, with 10% to spare.
-
-        Searching and scanning both rely on this, so turn_rad_per_speed_ms is the
-        first value to calibrate. In simulation, turns 40% slower than assumed cost
-        about a quarter of the goals.
-        """
-        per_pulse = self.turn_speed * self.max_turn_ms * self.turn_rad_per_speed_ms
-        return math.ceil(1.1 * 2 * math.pi / per_pulse)
+        """Look steps for one full turn, with 10% to spare."""
+        return math.ceil(1.1 * 2 * math.pi / self.look_step_rad)
 
 
 class HeadingMemory:
@@ -223,6 +257,10 @@ class BallGoalController:
         self._search_pulses = 0
         self._goal_scan_failed = False
         self._return_turn = "rotate_right"  # the scan spins left, so the way back is usually right
+        # -1 or +1 if the ball left over the left or right edge, read only while it is missing.
+        self._exit_side = 0
+        self._search_turn: Optional[str] = None
+        self._sightings = deque(maxlen=config.confirm_window)
         self._handlers = {
             Phase.SEARCH: self._search,
             Phase.APPROACH: self._approach,
@@ -238,7 +276,10 @@ class BallGoalController:
 
     def step(self, obs: Observation) -> Action:
         ball = obs.ball
+        self._sightings.append(ball is not None)
         if ball is None:
+            if self._misses == 0:
+                self._exit_side = self._edge_side(self._last_ball_x)
             self._misses += 1
         else:
             self._misses = 0
@@ -258,9 +299,15 @@ class BallGoalController:
 
     def _search(self, ball: Optional[Detection], goal: Optional[Detection]) -> Action:
         if ball is not None:
-            self._search_pulses = 0
-            self._enter(Phase.APPROACH, "ball found")
-            return self._approach(ball, goal)
+            if sum(self._sightings) >= self.cfg.confirm_hits:
+                self._enter(Phase.APPROACH, "ball found")
+                return self._approach(ball, goal)
+            self.reason = "possible ball, holding still to confirm it"
+            return Wait(self.cfg.wait_ms)
+        if self._search_turn is None:
+            # Chosen once per search: re-choosing every step would flip the turn as soon
+            # as the remembered goal came into view, and the robot would rock in place.
+            self._search_turn = self._choose_search_turn()
         self._search_pulses += 1
         lap = self.cfg.pulses_per_lap
         if self._search_pulses > self.cfg.max_search_laps * lap:
@@ -268,9 +315,28 @@ class BallGoalController:
         if self._search_pulses > lap and (self._search_pulses - 1) % lap < self.cfg.search_back_pulses:
             self.reason = "back off after a fruitless lap"
             return Move("backward", self.cfg.drive_speed, self.cfg.max_approach_ms)
-        self.reason = "spin toward the side the ball was last seen"
-        direction = "rotate_left" if self._last_ball_x < 0.5 else "rotate_right"
-        return Move(direction, self.cfg.turn_speed, self.cfg.max_turn_ms)
+        self.reason = "turn one look step and look again"
+        return Move(self._search_turn, self.cfg.turn_speed, self.cfg.look_step_ms)
+
+    def _choose_search_turn(self) -> str:
+        """Edge the ball rolled over, else the remembered goal when it is out of view, else the last side."""
+        if self._exit_side:
+            right = self._exit_side > 0
+        else:
+            relative = self._memory.goal_relative_to(0.5)
+            if relative is not None and abs(relative) > self._memory.half_fov():
+                # A missed shot usually leaves the ball near the goal.
+                right = relative < 0
+            else:
+                right = self._last_ball_x >= 0.5
+        return "rotate_right" if right else "rotate_left"
+
+    def _edge_side(self, x: float) -> int:
+        if x < self.cfg.edge_band:
+            return -1
+        if x > 1 - self.cfg.edge_band:
+            return 1
+        return 0
 
     def _approach(self, ball: Optional[Detection], goal: Optional[Detection]) -> Action:
         if ball is None:
@@ -330,7 +396,7 @@ class BallGoalController:
         scan_over = self._memory.knows_goal() or self._phase_pulses >= 2 * lap
         if not scan_over:
             self.reason = "scan in place for the goal"
-            return Move("rotate_left", self.cfg.turn_speed, self.cfg.max_turn_ms)
+            return Move("rotate_left", self.cfg.turn_speed, self.cfg.look_step_ms)
         if not self._memory.knows_goal():
             self._goal_scan_failed = True
         if ball is not None:
@@ -343,11 +409,11 @@ class BallGoalController:
             self._return_turn = "rotate_left" if relative > 0 else "rotate_right"
             self.reason = "turn back to the remembered ball"
             ms = abs(relative) / (self.cfg.turn_speed * self.cfg.turn_rad_per_speed_ms)
-            return Move(self._return_turn, self.cfg.turn_speed, self._clamp_ms(ms, self.cfg.max_turn_ms))
+            return Move(self._return_turn, self.cfg.turn_speed, self._clamp_ms(ms, self.cfg.look_step_ms))
         # Memory says the ball should be in view but it is not, which usually means the
         # turn rate is overestimated and the robot under-rotated, so keep turning the same way.
         self.reason = "ball not where memory says, keep turning"
-        return Move(self._return_turn, self.cfg.turn_speed, self.cfg.max_turn_ms)
+        return Move(self._return_turn, self.cfg.turn_speed, self.cfg.look_step_ms)
 
     def _push(self, ball: Optional[Detection], goal: Optional[Detection]) -> Action:
         if self._phase_pulses >= self.cfg.max_push_pulses:
@@ -380,10 +446,12 @@ class BallGoalController:
         return self._lose_ball("ball not visible after backing off")
 
     def _on_missing(self) -> Action:
-        if self._misses <= self.cfg.ball_lost_grace:
+        # Waiting covers missed detections; a ball that left over an edge will
+        # not come back on its own, so that case searches at once.
+        if not self._exit_side and self._misses <= self.cfg.ball_lost_grace:
             self.reason = "ball missing, waiting for a fresh frame"
             return Wait(self.cfg.wait_ms)
-        return self._lose_ball("ball lost")
+        return self._lose_ball("ball rolled out of view" if self._exit_side else "ball lost")
 
     def _lose_ball(self, reason: str) -> Action:
         """Every route that gives up on the ball comes here, so search_when_lost applies to all."""
@@ -402,6 +470,12 @@ class BallGoalController:
         return int(max(self.cfg.min_pulse_ms, min(upper, ms)))
 
     def _enter(self, phase: Phase, reason: str) -> None:
+        if phase is Phase.SEARCH:
+            # A search can also end through notify_boundary and recover, which never pass
+            # the found-ball branch, so its lap budget, turn and sightings reset here.
+            self._search_pulses = 0
+            self._search_turn = None
+            self._sightings.clear()
         self.phase = phase
         self.reason = reason
         self._phase_pulses = 0

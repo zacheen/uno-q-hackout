@@ -17,7 +17,7 @@ The controller is a state machine.
 
 | Phase | What the robot does | Leaves when |
 | --- | --- | --- |
-| search | Spins toward the side where the ball was last seen, and backs off after each lap to uncover a ball sitting below the camera | The ball is seen, or three laps pass |
+| search | Turns half a field of view between looks, toward the edge the ball rolled over, else toward the remembered goal, else toward the side the ball was last seen, and backs off after each lap to uncover a ball sitting below the camera | The ball is seen, or three laps pass |
 | approach | Turns to centre the ball, then drives toward it in pulses that shrink as it gets closer | The ball is close enough to line up |
 | scan | Spins in place to find the goal while remembering where the ball was, then turns back to the ball | The goal has been seen and the ball is back in view |
 | lineup | Slides sideways while turning to keep the ball centred, which orbits the ball until the goal sits directly behind it | The ball and goal line up, or the orbit budget runs out |
@@ -62,7 +62,7 @@ Every controller threshold lives in `ControlConfig` in `python/control.py`. The 
 
 | Setting | How to measure it | Measured value |
 | --- | --- | --- |
-| `turn_rad_per_speed_ms` | Turn ten 220 ms pulses at speed 120, measure the total angle in radians, and divide by 10, by 120 and by 220. Calibrate this first, because the search and scan both depend on it | to be measured |
+| `turn_rad_per_speed_ms` | Turn ten 420 ms pulses at speed 120, measure the total angle in radians, and divide by 10, by 120 and by 420. The pulse length matches one search look step, since short pulses are expected to lose a larger share of their angle to motor spin-up. The look step is computed from this value, so if the result moves it far from 420 ms, measure again at the new length. Calibrate this first, because the search and scan both depend on it, and again after changing `turn_speed`, `hfov_deg` or `look_step_frac` | to be measured |
 | `hfov_deg` | Read the angle between the left and right image edges with a ruler at a known distance | to be measured |
 | `near_y` | Place the ball where lining up should start, about 25 cm ahead, and read `ball.y` in `detect_only` | to be measured |
 | `align_band` | Place the ball in front of the goal at several spots and read how far apart the two centres are | to be measured |
@@ -81,7 +81,7 @@ python sim/robustness.py --episodes 150
 
 The unit tests cover the stream parser against the firmware's exact framing, the frozen and corrupt frame checks, the colour detector, the controller's decisions and its rejection of threshold combinations that would loop forever, every way the run loop can end, the line sensor guard, the frame capture tool, and an import of `main.py` against a stand-in for the board-only Arduino module.
 
-The simulator runs the same controller and run loop against a top-down model of the robot, ball, taped field and camera. Its physical constants are guesses, so it shows that the decision logic is sound, not how the real robot will score. On 300 random starts it scored 297 times with a median of 23.6 seconds. The robustness sweep changes one assumption at a time and found that an overestimated turn rate hurts most, which is why that value is calibrated first.
+The simulator runs the same controller and run loop against a top-down model of the robot, ball, taped field and camera. Its physical constants are guesses, so it shows that the decision logic is sound, not how the real robot will score. On 300 random starts it scored 299 times with a median of 23.5 seconds. The robustness sweep changes one assumption at a time and found that an overestimated turn rate hurts most, which is why that value is calibrated first.
 
 ## Results
 
