@@ -27,7 +27,9 @@ class EpisodeConfig:
 
     time_limit_s: float = 60.0
     max_frame_age_s: float = 0.5
-    observe_wait_s: float = 1.0
+    # The event robot's stream stalled twice in 30 s, and the reader only reconnects after its 2 s
+    # read timeout, so a 1 s wait ended runs on a hiccup. The robot stands still while it waits.
+    observe_wait_s: float = 3.5
     back_off: Move = Move("backward", 130, 250)
     # A guard that keeps firing after this many back-offs in a row has either the wrong
     # black_bit or a back_off that cannot clear the tape, as when the robot crossed the
