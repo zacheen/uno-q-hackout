@@ -81,7 +81,7 @@ The camera's exposure and white balance cannot be changed through its driver, so
 
 ## Running it
 
-1. Install the Python packages the detector needs while the UNO Q still has Internet access, because the camera network has none. They are listed in `python/requirements.txt`, which is to be filled. Then join the camera's Wi-Fi from UNO Q Linux and keep USB connected for deploying.
+1. Deploy once while the UNO Q still has Internet access, because the camera network has none. The app installs `python/requirements.txt`, which holds `edge_impulse_linux` for the `.eim` model, the first time it starts. Then join the camera's Wi-Fi from UNO Q Linux and keep USB connected for deploying.
 2. Put the exported `.eim` model in `python/`. Without one the app falls back to a colour threshold, which finds the ball but never the goal.
 3. Deploy from a terminal in this folder.
 
