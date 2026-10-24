@@ -72,12 +72,12 @@ The detector is an Edge Impulse FOMO model with two classes, `soccerball` and `g
 
 | Item | Value |
 | --- | --- |
-| Edge Impulse project | A clone of the organisers' public project 1144501, with its 125 goal samples enabled and the robot class left out, and the resize mode set to Squash |
-| Model file in `python/` | `uno-q-hackout-linux-aarch64-v1.eim`, built for Arduino UNO Q with the EON Compiler and int8 quantisation, and kept out of git by `.gitignore` because of its 13.6 MB |
-| Training images | 255 from the organisers' project, taken with the robot camera, giving 211 objects, 125 goal and 86 soccer_ball |
-| Test images | 66 from the organisers' project |
-| Training cycles and learning rate | to be filled |
-| Test accuracy | F1 86.4% on the validation set for the int8 model, with 96% of goals and 93.3% of balls found and no background taken for either |
+| Edge Impulse project | A clone of the organisers' public project 1144501 made after they relabelled the goal as two posts, with the resize mode set to Squash. An earlier clone, from before the relabelling, had its 125 goal samples enabled by hand |
+| Model file in `python/` | `uno-q-hackout-new-linux-aarch64-v1.eim`, built for Arduino UNO Q with the EON Compiler and int8 quantisation, and kept out of git by `.gitignore` because of its 13.6 MB |
+| Training images | to be filled for the relabelled data. The earlier clone had 255, taken with the robot camera, giving 211 objects, 125 goal and 86 soccer_ball |
+| Test images | to be filled for the relabelled data. The earlier clone had 66 |
+| Training cycles and learning rate | 150 cycles at 0.001, with data augmentation |
+| Test accuracy | to be filled for the relabelled data. The earlier model scored F1 86.4% on the validation set for int8, with 96% of goals and 93.3% of balls found and no background taken for either |
 
 The camera's exposure and white balance cannot be changed through its driver, so robustness to the venue lighting has to come from the training images. `tools/capture_frames.py` saves frames straight from the robot camera while a laptop is on the camera's Wi-Fi, which keeps training images on the same sensor and JPEG path the robot sees while driving.
 

@@ -21,9 +21,8 @@ FIELD = ControlConfig(
     sidestep_pulses=3,
     max_search_laps=2,
     search_back_pulses=2,
-    # Off only while the organisers fix the goal data. Turn it back on for scored runs, since in
-    # simulation pushing straight without the goal scored 5 of 60.
-    use_goal=False,
+    # Back on with the model trained on the organisers' fixed data, where the goal is two posts.
+    use_goal=True,
     # A ball 25 cm ahead read y 0.625, a FOMO cell centre, so the default 0.60 starts lining up there.
     near_y=0.60,
 )
