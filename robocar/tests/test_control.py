@@ -36,7 +36,7 @@ def test_config_rejects_values_that_recurse_or_divide_by_zero():
                 dict(turn_speed=0), dict(max_turn_ms=0), dict(min_pulse_ms=0), dict(max_approach_ms=0),
                 dict(strafe_ms=0), dict(push_ms=0), dict(look_step_frac=0.0), dict(confirm_hits=4),
                 dict(turn_rad_per_speed_ms=1e-7), dict(hfov_deg=0.0), dict(hfov_deg=180.0),
-                dict(edge_band=0.5)):
+                dict(edge_band=0.5), dict(min_turn_speed=0), dict(min_turn_speed=121)):
         assert _raises(ValueError, ControlConfig, **bad), f"accepted {bad}"
 
 
@@ -78,6 +78,53 @@ def test_turns_toward_an_off_centre_ball():
     c = _controller()
     assert _confirmed(c, _obs(ball=(0.2, 0.4))).direction == "rotate_left"
     assert c.step(_obs(ball=(0.8, 0.4))).direction == "rotate_right"
+
+
+def test_a_short_centring_turn_keeps_full_speed_until_a_turn_overshoots():
+    action = _confirmed(_controller(), _obs(ball=(0.6, 0.3)))
+    assert action == Move("rotate_right", ControlConfig().turn_speed, ControlConfig().min_pulse_ms)
+
+
+def test_a_centring_turn_that_overshoots_makes_the_next_ones_smaller():
+    c = _controller()
+    assert _confirmed(c, _obs(ball=(0.75, 0.3))).ms == 150
+    # The ball lands as far past the centre as it started, so the turn rate is faster than assumed.
+    assert c.step(_obs(ball=(0.25, 0.3))) == Move("rotate_left", ControlConfig().turn_speed, 90)
+    # It overshoots again, and a correction shorter than the minimum pulse turns slower instead.
+    assert c.step(_obs(ball=(0.6, 0.3))) == Move("rotate_right", ControlConfig().min_turn_speed,
+                                                 ControlConfig().min_pulse_ms)
+
+
+def test_centring_turns_grow_back_after_falling_short_but_never_past_the_calibrated_length():
+    c = _controller()
+    _confirmed(c, _obs(ball=(0.75, 0.3)))
+    shrunk = c.step(_obs(ball=(0.25, 0.3))).ms
+    lengths = [c.step(_obs(ball=(0.25, 0.3))).ms for _ in range(8)]
+    assert shrunk < lengths[0] and lengths[-1] == 150 and max(lengths) == 150
+
+
+def test_a_turn_that_lands_across_the_centre_but_inside_the_band_keeps_the_gain():
+    c = _controller()
+    _confirmed(c, _obs(ball=(0.62, 0.3)))
+    assert c.step(_obs(ball=(0.47, 0.3))).direction == "forward"
+    assert c.step(_obs(ball=(0.75, 0.3))).ms == 150
+
+
+def test_only_the_frame_right_after_a_centring_turn_is_compared():
+    c = _controller()
+    _confirmed(c, _obs(ball=(0.75, 0.3)))
+    assert isinstance(c.step(_obs()), Wait)
+    # A sample kept past the missed frame would read this as an overshoot and shrink the turn to 90 ms.
+    assert c.step(_obs(ball=(0.25, 0.3))).ms == 150
+
+
+def test_the_centring_gain_stops_shrinking_at_its_floor():
+    c = _controller()
+    _confirmed(c, _obs(ball=(0.9, 0.3)))
+    for x in (0.1, 0.9, 0.1):
+        c.step(_obs(ball=(x, 0.3)))
+    # Four overshoots would leave a gain of 0.13, but the 0.2 floor gives 48 ms, stretched to 80 at speed 72.
+    assert c.step(_obs(ball=(0.9, 0.3))) == Move("rotate_right", 72, ControlConfig().min_pulse_ms)
 
 
 def test_drives_at_a_centred_far_ball():

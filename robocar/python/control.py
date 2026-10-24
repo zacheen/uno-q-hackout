@@ -83,6 +83,9 @@ class ControlConfig:
     search_when_lost: bool = True
 
     turn_speed: int = 120
+    # Slowest rotate speed that still turns the robot.
+    # Check on the field that the robot really turns at this speed.
+    min_turn_speed: int = 60
     drive_speed: int = 130           # also the speed of backward pulses in search and recover
     strafe_speed: int = 140
     push_speed: int = 170
@@ -154,6 +157,8 @@ class ControlConfig:
             raise ValueError("edge_band must be in [0, 0.5)")
         if not 1 <= self.confirm_hits <= self.confirm_window:
             raise ValueError("confirm_hits must be between 1 and confirm_window")
+        if not 0 < self.min_turn_speed <= self.turn_speed:
+            raise ValueError("min_turn_speed must be in (0, turn_speed]")
         # The firmware clamps pulses to 5000 ms while Python waits the full length it asked for.
         if self.look_step_ms > 5000:
             raise ValueError("look_step_ms exceeds the firmware's 5000 ms pulse limit")
@@ -239,6 +244,50 @@ def _wrap(angle: float) -> float:
     return math.atan2(math.sin(angle), math.cos(angle))
 
 
+class CentringGain:
+    """Shrinks centring turns after one overshoots, because the true turn rate is only roughly known.
+
+    At the calibrated rate even the shortest pulse lands inside the centre band. A turn rate
+    well above it makes that pulse jump the ball across the band, and the robot rocks from
+    side to side of the ball. A turn that falls short grows the next ones back, never past
+    the calibrated length, so a shrink caused by detector jitter does not last the whole run.
+    """
+
+    _CALIBRATED = 1.0
+    _SHRINK = 0.6
+    _REGROW = 1.15
+    _FLOOR = 0.2
+
+    def __init__(self, center_band: float) -> None:
+        self._center_band = center_band
+        self._gain = self._CALIBRATED
+        self._error_before: Optional[float] = None
+
+    @property
+    def gain(self) -> float:
+        return self._gain
+
+    @property
+    def shrunk(self) -> bool:
+        return self._gain < self._CALIBRATED
+
+    def turned(self, error: float) -> None:
+        self._error_before = error
+
+    def observe(self, ball: Optional[Detection]) -> None:
+        """Call with every frame; only the frame right after a centring turn is compared."""
+        before, self._error_before = self._error_before, None
+        if before is None or ball is None:
+            return
+        after = ball.x - 0.5
+        if abs(after) <= self._center_band:
+            return
+        if before * after < 0:
+            self._gain = max(self._FLOOR, self._gain * self._SHRINK)
+        else:
+            self._gain = min(self._CALIBRATED, self._gain * self._REGROW)
+
+
 class BallGoalController:
     """Lining up alternates lateral strafes with rotations that keep the ball centred, so
     the robot orbits the ball. A strafe shifts the nearby ball across the image more
@@ -251,6 +300,7 @@ class BallGoalController:
         self.phase = Phase.SEARCH
         self.reason = ""
         self._memory = HeadingMemory(config)
+        self._centring = CentringGain(config.center_band)
         self._misses = 0
         self._last_ball_x = 0.5
         self._phase_pulses = 0
@@ -276,6 +326,9 @@ class BallGoalController:
 
     def step(self, obs: Observation) -> Action:
         ball = obs.ball
+        # Before the handlers, because a centring turn they issue records the error that the
+        # next frame is compared with, and this frame would otherwise be compared with itself.
+        self._centring.observe(ball)
         self._sightings.append(ball is not None)
         if ball is None:
             if self._misses == 0:
@@ -468,8 +521,15 @@ class BallGoalController:
     def _turn_toward(self, ball: Detection) -> Move:
         self.reason = "centre the ball"
         error = ball.x - 0.5
-        ms = self._clamp_ms(abs(error) * self.cfg.turn_ms_per_unit, self.cfg.max_turn_ms)
-        return Move("rotate_right" if error > 0 else "rotate_left", self.cfg.turn_speed, ms)
+        ms = abs(error) * self.cfg.turn_ms_per_unit * self._centring.gain
+        speed = self.cfg.turn_speed
+        if ms < self.cfg.min_pulse_ms and self._centring.shrunk:
+            # The pulse cannot get shorter, so turn slower. Never at the calibrated gain, where
+            # the shortest pulse already lands inside the centre band.
+            speed = max(self.cfg.min_turn_speed, int(speed * ms / self.cfg.min_pulse_ms))
+        self._centring.turned(error)
+        return Move("rotate_right" if error > 0 else "rotate_left", speed,
+                    self._clamp_ms(ms, self.cfg.max_turn_ms))
 
     def _clamp_ms(self, ms: float, upper: int) -> int:
         return int(max(self.cfg.min_pulse_ms, min(upper, ms)))

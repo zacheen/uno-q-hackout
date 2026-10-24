@@ -28,6 +28,8 @@ Lining up works because a sideways slide moves the nearby ball across the image 
 
 The robot also keeps a rough heading by adding up the turns it has commanded. That lets it remember which way the goal lay after the goal leaves the image, so it orbits the short way round. Only a sighting from the last few moves can start a push, because the remembered heading drifts with every turn.
 
+Centring turns are sized from the calibrated turn rate. When one overshoots so far that the ball lands outside the centre band on the other side, the next ones shrink, and a turn that would fall below the minimum pulse length turns slower instead. A turn that falls short grows them back, never past the calibrated size, so a shrink caused by detector jitter wears off. In simulation a turn rate twice the calibrated one scored 179 of 200 with this and 70 without it, while the calibrated rate scored the same either way.
+
 ## Safety
 
 - Every move is a short timed pulse, and the MCU stops the motors when the pulse ends even if Python hangs.
@@ -64,6 +66,7 @@ Every controller threshold lives in `ControlConfig` in `python/control.py`. The 
 | --- | --- | --- |
 | `turn_rad_per_speed_ms` | Turn ten 420 ms pulses at speed 120, measure the total angle in radians, and divide by 10, by 120 and by 420. The pulse length matches one search look step, since short pulses are expected to lose a larger share of their angle to motor spin-up. The look step is computed from this value, so if the result moves it far from 420 ms, measure again at the new length. Calibrate this first, because the search and scan both depend on it, and again after changing `turn_speed`, `hfov_deg` or `look_step_frac` | to be measured |
 | `hfov_deg` | Read the angle between the left and right image edges with a ruler at a known distance | to be measured |
+| `min_turn_speed` | Send 80 ms `rotate_left` pulses, the `min_pulse_ms` length, starting at speed 60 and raising it until the robot turns every time. Centring slows toward this speed only while overshoots keep its turns shrunk | to be measured |
 | `near_y` | Place the ball where lining up should start, about 25 cm ahead, and read `ball.y` in `detect_only` | to be measured |
 | `align_band` | Place the ball in front of the goal at several spots and read how far apart the two centres are | to be measured |
 | `black_bit` in `python/hardware.py` | Start the app with the robot over tape and over the floor, and compare `line_digital` | to be measured |
