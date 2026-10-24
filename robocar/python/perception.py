@@ -145,6 +145,7 @@ class CameraPerception:
         return Observation(
             ball=_nearest_ball(detections, self._min_ball_y),
             goal=_goal_mouth(detections),
+            posts=tuple(d for d in detections if d.label == GOAL),
             frame_age_s=time.monotonic() - frame.received_at,
             seq=frame.seq,
         )

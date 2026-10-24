@@ -1,6 +1,7 @@
 import math
 
-from control import BALL, GOAL, BallGoalController, ControlConfig, Detection, Halt, Move, Observation, Phase, Wait
+from control import (BALL, GOAL, BallGoalController, ControlConfig, Detection, Halt, HeadingMemory, Move,
+                     Observation, Phase, Wait)
 
 
 def _obs(ball=None, goal=None) -> Observation:
@@ -189,6 +190,64 @@ def test_without_the_scan_a_near_ball_is_pushed_straight_unless_a_goal_shows():
     c = _controller(scan_for_goal=False)
     _confirmed(c, _obs(ball=(0.5, 0.7), goal=(0.8, 0.3)))
     assert c.phase is Phase.LINEUP and c.reason == "orbit to line up"
+
+
+def test_a_lone_post_shifts_the_remembered_pair_instead_of_standing_for_the_goal():
+    m = HeadingMemory(ControlConfig())
+    m.see_posts([0.3, 0.7])
+    assert abs(m.goal_column() - 0.5) < 1e-9
+    # Only the right post shows, 0.1 left of where the pair put it.
+    m.see_posts([0.6])
+    assert abs(m.goal_relative_to(0.5) - (m.bearing(0.6) - m.bearing(0.7))) < 1e-9
+    alone = HeadingMemory(ControlConfig())
+    alone.see_posts([0.6])
+    assert abs(alone.goal_column() - 0.6) < 1e-9
+
+
+def test_a_push_keeps_going_when_the_ball_hides_one_post_of_a_lined_up_goal():
+    c = _controller()
+    posts = (Detection(GOAL, 0.2, 0.3, 0.9), Detection(GOAL, 0.8, 0.3, 0.9))
+    ball = Detection(BALL, 0.5, 0.7, 0.9)
+    _confirmed(c, Observation(ball=ball, goal=None, frame_age_s=0.05, seq=1, posts=posts))
+    assert c.phase is Phase.PUSH
+    action = c.step(Observation(ball=ball, goal=None, frame_age_s=0.05, seq=2, posts=posts[1:]))
+    assert c.phase is Phase.PUSH and action.direction == "forward"
+
+
+def test_a_lone_post_sends_lineup_aside_to_find_the_other_one_first():
+    c = _controller(sidestep_pulses=1)
+    lone = Observation(ball=Detection(BALL, 0.5, 0.7, 0.9), goal=None, frame_age_s=0.05, seq=1,
+                       posts=(Detection(GOAL, 0.5, 0.3, 0.9),))
+    assert _confirmed(c, lone) == Move("left", c.cfg.strafe_speed, c.cfg.strafe_ms)
+    assert c.reason == "step aside to find the other post"
+    # With the sidestep spent the lone post stands for the goal, which lies behind the ball.
+    c.step(lone)
+    assert c.phase is Phase.PUSH
+
+
+def test_the_scan_turns_on_after_a_lone_post_and_ends_at_a_pair():
+    c = _controller()
+    _confirmed(c, _obs(ball=(0.5, 0.7)))
+    assert c.phase is Phase.SCAN
+
+    def frame(*xs):
+        return Observation(ball=None, goal=None, frame_age_s=0.05, seq=2,
+                           posts=tuple(Detection(GOAL, x, 0.3, 0.9) for x in xs))
+
+    action = c.step(frame(0.1))
+    assert c.reason == "turn on to find the other post" and action.direction == "rotate_left"
+    c.step(frame(0.3, 0.6))
+    assert c.reason == "turn back to the remembered ball"
+
+
+def test_the_scan_gives_up_after_its_laps():
+    c = _controller(scan_laps=1)
+    _confirmed(c, _obs(ball=(0.5, 0.7)))
+    for _ in range(c.cfg.pulses_per_lap - 1):
+        c.step(_obs())
+        assert c.reason == "scan in place for the goal"
+    c.step(_obs())
+    assert c.reason != "scan in place for the goal"
 
 
 def test_steps_aside_before_scanning_and_lines_up_once_the_goal_shows():

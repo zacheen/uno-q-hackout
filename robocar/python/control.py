@@ -2,7 +2,7 @@ import math
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Union
+from typing import Optional, Sequence, Tuple, Union
 
 BALL = "soccerball"
 GOAL = "goal"
@@ -24,6 +24,8 @@ class Observation:
     goal: Optional[Detection]
     frame_age_s: float
     seq: int
+    # Every goal post in the frame. Empty means goal is the only goal sighting there is.
+    posts: Tuple[Detection, ...] = ()
 
 
 class DetectorTimeout(RuntimeError):
@@ -149,6 +151,11 @@ class ControlConfig:
     # False pushes straight when lineup has no goal in view or memory, skipping the sidesteps and
     # the scan, while a goal that is seen is still lined up with.
     scan_for_goal: bool = True
+    # The scan gives up after this many laps. Two cover a turn rate overestimated enough that one
+    # counted lap falls short, and one suffices when the rate is set below the measured one.
+    scan_laps: int = 2
+    # Look steps the scan turns on after a lone post, to bring the other post into the same frame.
+    post_search_steps: int = 1
     search_back_pulses: int = 2      # back off after each fruitless lap to uncover a ball at the bumper
     max_search_laps: int = 3
     # Search and scan turn this fraction of hfov between looks. Half leaves enough overlap
@@ -197,6 +204,8 @@ class ControlConfig:
             raise ValueError("min_turn_speed must be in (0, turn_speed]")
         if self.sidestep_pulses < 0:
             raise ValueError("sidestep_pulses must be >= 0")
+        if self.scan_laps < 1 or self.post_search_steps < 0:
+            raise ValueError("scan_laps must be >= 1 and post_search_steps >= 0")
         if not 0 <= self.pulse_dead_ms <= 300:
             raise ValueError("pulse_dead_ms must be in [0, 300]")
         if not 0.5 <= self.right_turn_scale <= 2.0:
@@ -252,6 +261,7 @@ class HeadingMemory:
         self._half_fov_tan = math.tan(self._half_fov)
         self._heading = 0.0
         self._goal_heading: Optional[float] = None
+        self._posts: Tuple[float, ...] = ()  # remembered post headings, left first
         self._goal_age = 0
         self._ball_heading: Optional[float] = None
 
@@ -262,9 +272,33 @@ class HeadingMemory:
     def half_fov(self) -> float:
         return self._half_fov
 
-    def see_goal(self, goal_x: float) -> None:
-        self._goal_heading = self._heading + self.bearing(goal_x)
+    def see_posts(self, post_xs: Sequence[float]) -> None:
+        """Remembers the goal as the point between its two posts, even when only one is in view.
+
+        A frame with two posts sets the pair. A lone post shifts the remembered pair so that its
+        nearer post lands on the sighting, since turn drift and strafe parallax move both posts
+        alike. A lone post with no pair remembered stands for the goal, as the mouth's side of it
+        is unknown.
+        """
+        headings = sorted((self._heading + self.bearing(x) for x in post_xs), reverse=True)
+        if len(headings) >= 2:
+            self._posts = (headings[0], headings[-1])
+        elif len(self._posts) == 2 and self.knows_goal():
+            nearer = min(self._posts, key=lambda p: abs(_wrap(p - headings[0])))
+            shift = headings[0] - nearer
+            self._posts = tuple(p + shift for p in self._posts)
+        else:
+            self._posts = (headings[0],)
+        self._goal_heading = sum(self._posts) / len(self._posts)
         self._goal_age = 0
+
+    def knows_pair(self) -> bool:
+        return self.knows_goal() and len(self._posts) == 2
+
+    def goal_column(self) -> float:
+        """Image column of the remembered goal, outside 0 to 1 when it lies out of view."""
+        relative = max(-1.5, min(1.5, _wrap(self._goal_heading - self._heading)))
+        return 0.5 - math.tan(relative) / (2 * self._half_fov_tan)
 
     def see_ball(self, ball_x: float) -> None:
         self._ball_heading = self._heading + self.bearing(ball_x)
@@ -364,6 +398,7 @@ class BallGoalController:
         self._goal_scan_failed = False
         self._return_turn: Optional[str] = None
         self._sidesteps = 0
+        self._post_steps = 0
         # -1 or +1 if the ball left over the left or right edge, read only while it is missing.
         self._exit_side = 0
         self._search_turn: Optional[str] = None
@@ -395,9 +430,14 @@ class BallGoalController:
             self._misses = 0
             self._last_ball_x = ball.x
             self._memory.see_ball(ball.x)
-        goal = obs.goal if self.cfg.use_goal else None
-        if goal is not None:
-            self._memory.see_goal(goal.x)
+        # A goal reported without posts, as the simulator does, is already the mouth, so it stands
+        # for both posts.
+        posts = obs.posts or ((obs.goal, obs.goal) if obs.goal is not None else ())
+        goal = None
+        if posts and self.cfg.use_goal:
+            self._memory.see_posts([p.x for p in posts])
+            goal = Detection(GOAL, self._memory.goal_column(), sum(p.y for p in posts) / len(posts),
+                             min(p.score for p in posts))
             self._goal_scan_failed = False
         action = self._handlers[self.phase](ball, goal)
         if isinstance(action, Halt):
@@ -474,6 +514,12 @@ class BallGoalController:
             self._enter(Phase.PUSH, "orbit budget spent, pushing anyway")
             return self._push(ball, goal)
 
+        # A lone post would be lined up with the post itself, so first look past the ball for the other.
+        lone_post = self._memory.knows_goal() and not self._memory.knows_pair()
+        if lone_post and self._sidesteps < self.cfg.sidestep_pulses:
+            self._sidesteps += 1
+            self.reason = "step aside to find the other post"
+            return Move("left", self.cfg.strafe_speed, self.cfg.strafe_ms)
         if goal is not None:
             if abs(goal.x - ball.x) <= self.cfg.align_band:
                 self._enter(Phase.PUSH, "ball and goal lined up")
@@ -512,9 +558,14 @@ class BallGoalController:
     def _scan(self, ball: Optional[Detection], goal: Optional[Detection]) -> Action:
         """Spin in place until the goal is seen, then turn back to the remembered ball."""
         lap = self.cfg.pulses_per_lap
-        # Two laps of budget. The scan ends at the first sighting, so the second lap is only
-        # spent when the goal never appears or an overestimated turn rate leaves one "lap" short.
-        scan_over = self._memory.knows_goal() or self._phase_pulses >= 2 * lap
+        budget = self.cfg.scan_laps * lap
+        # Turning left brings the right post into view first, so the left one needs more turn.
+        lone_post = self._memory.knows_goal() and not self._memory.knows_pair()
+        if lone_post and self._post_steps < self.cfg.post_search_steps and self._phase_pulses < budget:
+            self._post_steps += 1
+            self.reason = "turn on to find the other post"
+            return Move("rotate_left", self.cfg.turn_speed, self.cfg.look_step_ms)
+        scan_over = self._memory.knows_goal() or self._phase_pulses >= budget
         if not scan_over:
             self.reason = "scan in place for the goal"
             return Move("rotate_left", self.cfg.turn_speed, self.cfg.look_step_ms)
@@ -611,6 +662,7 @@ class BallGoalController:
             self._sightings.clear()
         elif phase is Phase.SCAN:
             self._return_turn = None
+            self._post_steps = 0
         elif phase is Phase.LINEUP:
             self._sidesteps = 0
         self.phase = phase
