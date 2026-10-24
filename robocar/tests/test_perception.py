@@ -2,8 +2,8 @@ import cv2
 import numpy as np
 
 from camera import Frame
-from control import BALL
-from perception import CameraPerception, HsvBallDetector
+from control import BALL, GOAL
+from perception import CameraPerception, HsvBallDetector, _canonical
 
 ORANGE_BGR = (0, 128, 255)
 
@@ -90,3 +90,10 @@ def test_frozen_or_corrupt_frames_count_as_no_new_frame():
     perception = CameraPerception(_FakeReader(_frames(frame, frame, b"not a jpeg")), _detector(), skip_frames=0)
     assert perception.observe(wait_s=1.0).seq == 1
     assert perception.observe(wait_s=1.0) is None
+
+
+def test_model_labels_map_to_ball_and_goal_however_they_are_spelt():
+    for label in ("soccerball", "soccer_ball", "Soccer Ball", "soccer-ball"):
+        assert _canonical(label) == BALL
+    assert _canonical("goal") == GOAL and _canonical("Goal") == GOAL
+    assert _canonical("robot") == "robot"

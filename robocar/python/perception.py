@@ -30,7 +30,8 @@ class EimDetector:
         os.chmod(model_path, os.stat(model_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         self._runner = ImageImpulseRunner(model_path)
         params = self._runner.init()["model_parameters"]
-        missing = [label for label in required_labels if label not in params["labels"]]
+        labels = {_canonical(label) for label in params["labels"]}
+        missing = [label for label in required_labels if label not in labels]
         if missing:
             self._runner.stop()
             raise ValueError(f"model {model_path} lacks labels {missing}, has {params['labels']}")
@@ -58,7 +59,7 @@ class EimDetector:
             if box["value"] < self._min_score:
                 continue
             detections.append(Detection(
-                label=box["label"],
+                label=_canonical(box["label"]),
                 x=(box["x"] + box["width"] / 2) / self._input_w,
                 y=(box["y"] + box["height"] / 2) / self._input_h,
                 score=float(box["value"]),
@@ -144,6 +145,12 @@ class CameraPerception:
     def close(self) -> None:
         """Closes the detector; the reader is shared with its creator, which stops it."""
         self._detector.close()
+
+
+def _canonical(label: str) -> str:
+    """BALL or GOAL for a model label however it is spelt, since the organisers' dataset says soccer_ball."""
+    key = label.lower().replace("_", "").replace("-", "").replace(" ", "")
+    return {"soccerball": BALL, "goal": GOAL}.get(key, label)
 
 
 def _best(detections: Sequence[Detection], label: str) -> Optional[Detection]:
