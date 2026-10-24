@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional, Protocol, TextIO, assert_never
 
-from control import Action, BallGoalController, DetectorTimeout, Halt, Move, Observation, Wait
+from control import Action, BallGoalController, ControlConfig, DetectorTimeout, Halt, Move, Observation, Wait
 
 
 class Perception(Protocol):
@@ -89,8 +89,9 @@ def run_episode(perception: Perception, controller: BallGoalController, executor
             if backoffs_in_a_row > cfg.max_boundary_backoffs:
                 return _finish(log, None, controller,
                                f"line sensor still on tape after {cfg.max_boundary_backoffs} back-offs")
-            _record(log, None, controller, cfg.back_off, "line sensor saw the field edge")
-            executor.execute(cfg.back_off)
+            back_off = _pulse(controller.cfg, cfg.back_off)
+            _record(log, None, controller, back_off, "line sensor saw the field edge")
+            executor.execute(back_off)
             controller.notify_boundary()
             continue
         backoffs_in_a_row = 0
@@ -103,6 +104,8 @@ def run_episode(perception: Perception, controller: BallGoalController, executor
         if obs.frame_age_s > cfg.max_frame_age_s:
             return _finish(log, obs, controller, f"stale frame, {obs.frame_age_s:.2f}s old")
         action = controller.step(obs)
+        if isinstance(action, Move):
+            action = _pulse(controller.cfg, action)
         _record(log, obs, controller, action, controller.reason)
         if isinstance(action, Halt):
             return action.reason
@@ -110,6 +113,11 @@ def run_episode(perception: Perception, controller: BallGoalController, executor
             executor.wait(action.ms)
         else:
             executor.execute(action)
+
+
+def _pulse(cfg: ControlConfig, move: Move) -> Move:
+    """The pulse the motors get for a move as the controller sized it."""
+    return Move(move.direction, move.speed, cfg.pulse_ms(move.direction, move.ms))
 
 
 def _describe(action: Action) -> str:

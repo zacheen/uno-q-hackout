@@ -31,6 +31,9 @@ VARIANTS = {
     "camera tilted 10 deg less": {"cam_pitch_deg": BASE.cam_pitch_deg - 10},
     "FOMO 12x12 grid": {"fomo_cells": 12},
     "phantom balls 5%": {"false_ball_rate": 0.05},
+    "60 ms dead per pulse": {"dead_ms": 60},
+    "left turns 30% slow, right fast": {"turn_asymmetry": -0.3},
+    "drives and strafes veer": {"forward_yaw": 1.0, "strafe_yaw": 2.0},
 }
 
 

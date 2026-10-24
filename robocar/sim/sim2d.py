@@ -32,6 +32,11 @@ class SimParams:
     lateral_factor: float = 0.7      # mecanum strafing is slower than driving forward
     max_turn_rps: float = 3.0        # rad/s at speed 255
     motion_noise: float = 0.10       # relative error on every pulse
+    # Consistent errors of cheap brushed motors, unlike motion_noise which averages out.
+    turn_asymmetry: float = 0.0      # left turns this fraction faster than max_turn_rps, right turns slower
+    dead_ms: float = 0.0             # start of every pulse that moves nothing, from static friction and spin-up
+    forward_yaw: float = 0.0         # rad/s of rotation per m/s driven forward, so backward veers the other way
+    strafe_yaw: float = 0.0          # rad/s of rotation per m/s strafed left
     ball_friction: float = 1.5       # rolling deceleration, m/s^2
     detect_far_m: float = 2.5
     pixel_noise: float = 0.015
@@ -146,12 +151,17 @@ class SimExecutor:
         elif move.direction == "right":
             v_left = -scale * p.max_speed_mps * p.lateral_factor
         elif move.direction == "rotate_left":
-            omega = scale * p.max_turn_rps
+            omega = scale * p.max_turn_rps * (1 + p.turn_asymmetry)
         elif move.direction == "rotate_right":
-            omega = -scale * p.max_turn_rps
+            omega = -scale * p.max_turn_rps * (1 - p.turn_asymmetry)
         drift = w.rng.gauss(0, p.motion_noise * 0.3)
-        for _ in range(int(move.ms / 1000.0 / self.STEP_S)):
-            self._advance_robot(v_fwd, v_left, omega + drift * (abs(v_fwd) + abs(v_left)))
+        omega += drift * (abs(v_fwd) + abs(v_left)) + p.forward_yaw * v_fwd + p.strafe_yaw * v_left
+        dead_steps = int(p.dead_ms / 1000.0 / self.STEP_S)
+        for step in range(int(move.ms / 1000.0 / self.STEP_S)):
+            if step < dead_steps:
+                self._advance_robot(0.0, 0.0, 0.0)
+            else:
+                self._advance_robot(v_fwd, v_left, omega)
         self.wait(int(p.pulse_overhead_s * 1000))
 
     def wait(self, ms: int) -> None:

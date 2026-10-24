@@ -79,6 +79,25 @@ def test_ends_at_the_time_limit():
     assert _run(_Script(*[_obs()] * 50), clock=_Clock(step_s=3.0)) == "time limit reached"
 
 
+def test_moves_and_back_offs_reach_the_motors_corrected_by_the_turn_calibration():
+    def run(cfg):
+        executor = _Recorder()
+        script = _Script(_obs(ball=(0.9, 0.3)), _obs(ball=(0.1, 0.3)), _obs(ball=None), None)
+        _run(script, executor, BallGoalController(cfg), boundary=_Edge([False, False, True]))
+        return executor.calls
+
+    corrected_cfg = ControlConfig(pulse_dead_ms=50, right_turn_scale=1.5)
+    sized, sent = run(ControlConfig()), run(corrected_cfg)
+    assert CFG.back_off in sized
+    assert {"rotate_left", "rotate_right"} <= {m.direction for m in sized if isinstance(m, Move)}
+    assert len(sent) == len(sized)
+    for plain, corrected in zip(sized, sent):
+        if isinstance(plain, Move):
+            assert corrected == Move(plain.direction, plain.speed, corrected_cfg.pulse_ms(plain.direction, plain.ms))
+        else:
+            assert corrected == plain
+
+
 def test_missing_ball_waits_instead_of_moving():
     executor = _Recorder()
     # The ball ends the opening search and is approached, then vanishes from the centre.

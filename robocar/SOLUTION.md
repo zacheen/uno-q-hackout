@@ -28,7 +28,9 @@ Lining up works because a sideways slide moves the nearby ball across the image 
 
 The robot also keeps a rough heading by adding up the turns it has commanded. That lets it remember which way the goal lay after the goal leaves the image, so it orbits the short way round. Only a sighting from the last few moves can start a push, because the remembered heading drifts with every turn.
 
-Centring turns are sized from the calibrated turn rate. When one overshoots so far that the ball lands outside the centre band on the other side, the next ones shrink, and a turn that would fall below the minimum pulse length turns slower instead. A turn that falls short grows them back, never past the calibrated size, so a shrink caused by detector jitter wears off. In simulation a turn rate twice the calibrated one scored 179 of 200 with this and 70 without it, while the calibrated rate scored the same either way.
+Centring turns are sized as angles and turned into pulse lengths through the calibrated turn rate, the same way the search's look steps are. When one overshoots so far that the ball lands outside the centre band on the other side, the next ones shrink, and a turn that would fall below the minimum pulse length turns slower instead. A turn that falls short grows them back, never past the calibrated size, so a shrink caused by detector jitter wears off. In simulation a turn rate twice the calibrated one scored 163 of 200 with this and 7 without it, while the calibrated rate scored 197 and 196.
+
+The controller sizes every move as the time the motors should run, and the run loop sends each pulse corrected for this robot's motors. Every pulse gets the start-up time measured on the field added, because cheap gear motors lose the start of each pulse to static friction and spin-up, and right turns are lengthened when the motors turn right slower than left. In simulation a 60 ms start-up loss cost 85 of 200 goals and 100 ms all of them, until the correction won them back. Emulating the whole field calibration in simulation, the robot scored 183 to 200 of 200 under every motor error tried, including those losses, a 30 percent difference between left and right turns, turns half or twice the assumed speed, and drift while driving and strafing.
 
 ## Safety
 
@@ -52,12 +54,13 @@ Centring turns are sized from the calibrated turn rate. When one overshoots so f
 | `python/camera.py` | The background stream reader that keeps only the newest frame and its arrival time |
 | `python/perception.py` | The `.eim` detector, the colour fallback, and the frozen and corrupt frame checks |
 | `python/control.py` | The state machine and every tunable threshold in `ControlConfig` |
+| `python/calibration.py` | The turn calibration shared by `turn_check` on the robot and `tools/turn_calc.py` |
 | `python/runtime.py` | The run loop shared by the robot and the simulator, with every way a run can end |
 | `python/hardware.py` | The motor executor and the line sensor guard |
 | `python/robot_client.py`, `sketch/` | The organisers' robot driver and MCU firmware, unchanged |
 | `sim/` | The top-down simulator and the robustness sweep |
 | `tests/` | Unit tests that run on an ordinary computer |
-| `tools/` | Frame capture for training images and plotting of run logs |
+| `tools/` | Frame capture for training images, the turn calibration calculator and plotting of run logs |
 
 ## Model and dataset
 
@@ -88,7 +91,7 @@ The camera's exposure and white balance cannot be changed through its driver, so
    On Windows run these in Git Bash. The `GNUmakefile` here stops Git Bash from rewriting the `/tmp` and `TMPDIR` arguments that the Makefile passes to adb.
 4. The `MODE` constant at the top of `python/main.py` selects what runs, and every change needs another deploy. Calibrate in this order.
    - `motion_check` performs the starter's single forward pulse.
-   - `turn_check` turns left by ten search look steps and then makes three short slow right turns, for calibrating `turn_rad_per_speed_ms` and `min_turn_speed`.
+   - `turn_check` turns ten search look steps left and ten right, makes three short slow right turns, then turns left by pulses of rising length. `tools/turn_calc.py` turns what it shows into the turn settings, see Calibration.
    - `detect_only` prints every detection while the motors stay idle.
    - `play` runs the full routine and writes one CSV row per decision under the app's `data/runs/` folder.
 5. For a scored attempt set `MODE = "play"`, place the robot at the start position and short-press the camera BOOT button. After the red, yellow and green countdown the robot makes one attempt and stops, and the next attempt needs another press.
@@ -101,9 +104,10 @@ Every controller threshold lives in `ControlConfig` in `python/control.py`. The 
 
 | Setting | How to measure it | Measured value |
 | --- | --- | --- |
-| `turn_rad_per_speed_ms` | Set `MODE = "turn_check"` in `python/main.py`, put the robot on the floor and press BOOT. It turns left by ten search look steps and prints the angle the controller expects, 350 degrees with the defaults. The pulses are search look steps because short pulses are expected to lose a larger share of their angle to motor spin-up. Judge the angle it really turned against a tape line, then set this to its current value times the real angle divided by the expected one, times 0.75. The 0.75 keeps the real turns faster than the controller assumes. In simulation real turns from 0.9 to 1.5 times the assumed rate scored 195 to 199 of 200 while 0.8 times scored 174, and a battery that slows the turns by a quarter during the day still leaves them inside that range. The result barely depends on the value set before, so repeat the check after changing `turn_speed`, `hfov_deg` or `look_step_frac`, which change the pulse length. Calibrate this first, because the search and scan both depend on it | to be measured |
+| `turn_rad_per_speed_ms`, `pulse_dead_ms` and `right_turn_scale` | Set `MODE = "turn_check"` in `python/main.py`, put the robot on the field surface and press BOOT. Read three things against a tape line, the angle the ten left look steps turned, where the ten right look steps leave the robot measured from its starting direction and positive to the left, and the shortest of the final rising pulses that clearly turns it. Then run `python tools/turn_calc.py --left-deg <angle> --end-deg <end> --dead-ms <shortest>` before editing anything, because it reads the settings the robot ran with. It sets the turn rate to 0.75 of the measured one, so real turns run faster than the controller assumes. In simulation real turns from 0.9 to 1.5 times the assumed rate scored 196 to 199 of 200 while 0.8 times scored 182, and a battery that slows the turns by a quarter during the day still leaves them inside that range. Repeat the check after changing `turn_speed`, `hfov_deg` or `look_step_frac`, which change the pulse length. Calibrate these first, because search, scan and centring all depend on them | to be measured |
+| `turn_speed` | If the look steps of `turn_check` barely turn the robot, raise this by 20. The sketch gives each wheel half the PWM for a turn that it gives for driving, so turns are the first move to stall | to be measured |
 | `hfov_deg` | Read the angle between the left and right image edges with a ruler at a known distance | to be measured |
-| `min_turn_speed` | `turn_check` ends with three right turns at this speed, each as long as `min_pulse_ms`. If any of them leaves the robot still, raise this by 10 and run the check again. Centring slows toward this speed only while overshoots keep its turns shrunk | to be measured |
+| `min_turn_speed` | `turn_check` makes three right turns at this speed, each as long as `min_pulse_ms`. If any of them leaves the robot still, raise this by 10 and run the check again. If `tools/turn_calc.py` warns that the slowest centring turn is wider than the centre band, lower this to the value it gives as long as those turns still move the robot, or else raise `center_band`. Centring slows toward this speed only while overshoots keep its turns shrunk | to be measured |
 | `near_y` | Place the ball where lining up should start, about 25 cm ahead, and read `ball.y` in `detect_only` | to be measured |
 | `align_band` | Place the ball in front of the goal at several spots and read how far apart the two centres are | to be measured |
 | `black_bit` in `python/hardware.py` | Start the app with the robot over tape and over the floor, and compare `line_digital` | to be measured |
@@ -124,9 +128,9 @@ python sim/run_sim.py --episodes 300
 python sim/robustness.py --episodes 150
 ```
 
-The unit tests cover the stream parser against the firmware's exact framing, the frozen and corrupt frame checks, the colour detector, the controller's decisions and its rejection of threshold combinations that would loop forever, every way the run loop can end, the line sensor guard, the frame capture tool, and an import of `main.py` against a stand-in for the board-only Arduino module.
+The unit tests cover the stream parser against the firmware's exact framing, the frozen and corrupt frame checks, the colour detector, the controller's decisions and its rejection of threshold combinations that would loop forever, every way the run loop can end and the pulse correction it sends, the line sensor guard, the turn calibration, the frame capture tool, and an import of `main.py` against a stand-in for the board-only Arduino module.
 
-The simulator runs the same controller and run loop against a top-down model of the robot, ball, taped field and camera. Its physical constants are guesses, so it shows that the decision logic is sound, not how the real robot will score. On 300 random starts it scored 299 times with a median of 23.3 seconds. The robustness sweep changes one assumption at a time and found that an overestimated turn rate hurts most, which is why that value is calibrated first and set below the measured one.
+The simulator runs the same controller and run loop against a top-down model of the robot, ball, taped field and camera. Its physical constants are guesses, so it shows that the decision logic is sound, not how the real robot will score. On 300 random starts with the default settings and no calibration it scored 297 times with a median of 23.9 seconds. The robustness sweep changes one assumption at a time and found that a start-up loss in every pulse and an overestimated turn rate hurt most, which is why both are calibrated first and the turn rate is set below the measured one.
 
 ## Results
 

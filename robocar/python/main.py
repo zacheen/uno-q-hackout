@@ -5,6 +5,7 @@ from typing import Callable, Optional
 
 from arduino.app_utils import App
 
+from calibration import DEAD_LADDER_MS, SLOW_TURN_PULSES, TURN_CHECK_PULSES
 from camera import LatestFrameReader
 from control import BallGoalController, ControlConfig
 from hardware import LineSensorGuard, RobotExecutor
@@ -12,10 +13,10 @@ from perception import CameraPerception, Detector, EimDetector, HsvBallDetector
 from robot_client import MiniAutoRobot
 from runtime import EpisodeConfig, RunLog, run_episode
 
-# "motion_check" is the starter's single forward pulse, "turn_check" turns search look
-# steps to check turn_rad_per_speed_ms and then a few slow ones to check min_turn_speed,
-# "detect_only" prints detections with the motors idle, and "play" runs the full search,
-# line-up and push routine.
+# "motion_check" is the starter's single forward pulse, "turn_check" makes the turns that
+# tools/turn_calc.py turns into the turn settings and checks min_turn_speed, "detect_only"
+# prints detections with the motors idle, and "play" runs the full search, line-up and
+# push routine.
 MODE = "motion_check"
 
 CAMERA_URL = "http://192.168.5.1:81/stream"
@@ -26,9 +27,8 @@ LOG_DIR = HERE.parent / "data" / "runs"
 # Tune these in runtime.EpisodeConfig, not here, so the simulator keeps testing the same limits.
 EPISODE = EpisodeConfig()
 MODES = ("motion_check", "turn_check", "detect_only", "play")
-TURN_CHECK_PULSES = 10
-SLOW_TURN_PULSES = 3
 DETECT_ONLY_S = 30.0
+READ_PAUSE_S = 5.0
 LINE_GUARD_ENABLED = False  # enable only after confirming LineSensorGuard.black_bit on the field
 # Used only when no .eim model loads; the default range is a guess for an orange ball.
 HSV_LOWER = (5, 120, 80)
@@ -56,19 +56,33 @@ def motion_check() -> None:
 
 
 def turn_check() -> None:
-    # Run with the wheels on the floor. The pulses are the search's own look steps, so the
-    # motor spin-up lost between looks is part of what gets measured.
+    # Run with the wheels on the floor. The pulses are the search's own look steps sent the way
+    # the controller sends them, so tools/turn_calc.py can undo whatever settings were in force.
     cfg = ControlConfig()
     expected = TURN_CHECK_PULSES * cfg.turn_speed * cfg.look_step_ms * cfg.turn_rad_per_speed_ms
-    print(f"[INFO] turning left {TURN_CHECK_PULSES} x {cfg.look_step_ms} ms at speed {cfg.turn_speed}, "
-          f"the controller expects {math.degrees(expected):.0f} degrees in total")
+    print(f"[INFO] {TURN_CHECK_PULSES} left look steps at speed {cfg.turn_speed}, the controller expects "
+          f"{math.degrees(expected):.0f} degrees in total")
     for _ in range(TURN_CHECK_PULSES):
-        robot.drive("rotate_left", speed=cfg.turn_speed, ms=cfg.look_step_ms)
-    print(f"[INFO] read the angle now. In 3 s come {SLOW_TURN_PULSES} right turns of {cfg.min_pulse_ms} ms "
-          f"at min_turn_speed {cfg.min_turn_speed}, and each one must visibly move the robot")
-    time.sleep(3.0)
+        robot.drive("rotate_left", speed=cfg.turn_speed, ms=cfg.pulse_ms("rotate_left", cfg.look_step_ms))
+    print(f"[INFO] read the angle turned left. In {READ_PAUSE_S:.0f} s come {TURN_CHECK_PULSES} right look steps")
+    time.sleep(READ_PAUSE_S)
+    for _ in range(TURN_CHECK_PULSES):
+        robot.drive("rotate_right", speed=cfg.turn_speed, ms=cfg.pulse_ms("rotate_right", cfg.look_step_ms))
+    print(f"[INFO] read where the robot ended, from its starting direction and positive to the left. "
+          f"In {READ_PAUSE_S:.0f} s come {SLOW_TURN_PULSES} right turns at min_turn_speed {cfg.min_turn_speed}, "
+          f"and each one must visibly move the robot")
+    time.sleep(READ_PAUSE_S)
     for _ in range(SLOW_TURN_PULSES):
-        robot.drive("rotate_right", speed=cfg.min_turn_speed, ms=cfg.min_pulse_ms)
+        robot.drive("rotate_right", speed=cfg.min_turn_speed, ms=cfg.pulse_ms("rotate_right", cfg.min_pulse_ms))
+    print(f"[INFO] in {READ_PAUSE_S:.0f} s come left pulses of rising length, note the shortest that "
+          f"clearly turns the robot")
+    time.sleep(READ_PAUSE_S)
+    for ms in DEAD_LADDER_MS:
+        print(f"[INFO] {ms} ms")
+        robot.drive("rotate_left", speed=cfg.turn_speed, ms=ms)
+        time.sleep(1.5)
+    print("[INFO] on the laptop run: conda run -n ML python robocar/tools/turn_calc.py "
+          "--left-deg <angle> --end-deg <end> --dead-ms <shortest>")
 
 
 def detect_only(perception: CameraPerception) -> None:

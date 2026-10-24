@@ -82,21 +82,30 @@ class ControlConfig:
     # Ask the judges, then set this; False halts on a loss.
     search_when_lost: bool = True
 
-    turn_speed: int = 120
+    # The sketch gives each wheel half the PWM for a rotation that it gives for a translation,
+    # so 180 drives the wheels about as hard as forward at drive_speed 130 (PWM 90 of 255).
+    # At 120 they got PWM 60, near where cheap TT gear motors are reported to stall.
+    turn_speed: int = 180
     # Slowest rotate speed at which a min_pulse_ms pulse still turns the robot. A centring
     # turn that needs a shorter pulse slows toward it, but only while overshoots have kept
     # the centring turns shrunk. Check on the field that the robot really turns at this speed.
-    min_turn_speed: int = 60
+    # 110 gives PWM 55, a little under the 65 of Hiwonder's own motor test for this chassis,
+    # because once turns ran twice the assumed rate, 130 scored 149 of 200 in simulation and 110
+    # scored 178, as slower turns are what lets centring settle.
+    min_turn_speed: int = 110
     drive_speed: int = 130           # also the speed of backward pulses in search and recover
     strafe_speed: int = 140
     push_speed: int = 170
     min_pulse_ms: int = 80
-    max_turn_ms: int = 220           # caps centring turns only; search and scan turn look_step_ms
     max_approach_ms: int = 300       # also the length of backward pulses in search and recover
     strafe_ms: int = 150
     push_ms: int = 250
     wait_ms: int = 60
-    turn_ms_per_unit: float = 600.0  # rotate pulse length per unit of horizontal error
+    # Centring turns are angles, turned into pulse lengths through turn_rad_per_speed_ms like the
+    # look step, so calibrating the turn rate also sizes them. Per unit of horizontal error the
+    # turn is about 70% of the angle to the ball, and the cap applies to centring turns only.
+    centre_turn_rad_per_unit: float = 0.864
+    max_centre_turn_rad: float = 0.3168
     approach_ms_per_unit: float = 900.0  # forward pulse length per unit of gap between ball.y and near_y
 
     # Measure both on the robot. turn_rad_per_speed_ms = radians turned by a rotate pulse
@@ -104,11 +113,19 @@ class ControlConfig:
     # in main.py turns look steps for this, since short pulses are expected to lose more to
     # motor spin-up. Set turn_rad_per_speed_ms to about 0.75 of the measured value, which keeps
     # real turns faster than assumed. In simulation real turns 0.9 to 1.5 times the assumed rate
-    # scored alike, while 0.8 times lost an eighth of the goals. Measure again after changing
-    # turn_speed, hfov_deg or look_step_frac, which move look_step_ms.
+    # scored 196 to 199 of 200, while 0.8 times scored 182 and 2 times 163. Measure again after
+    # changing turn_speed, hfov_deg or look_step_frac, which move look_step_ms.
     # hfov_deg comes from a ruler at a known distance.
     hfov_deg: float = 70.0
     turn_rad_per_speed_ms: float = 1.2e-5
+    # Both come from turn_check through tools/turn_calc.py and change only the pulse sent, see
+    # pulse_ms. pulse_dead_ms is the start of a pulse that moves nothing, from static friction
+    # and spin-up. In simulation 60 ms of it cost 85 of 200 goals and 100 ms all of them.
+    # Sending from the true value to twice it won them back, while three times it lost a quarter
+    # again, because the shortest turn then overshoots the centre band. right_turn_scale
+    # lengthens right turns for motors that turn right slower than left.
+    pulse_dead_ms: int = 0
+    right_turn_scale: float = 1.0
     align_angle_deg: float = 6.0     # remembered goal this close behind the ball counts as lined up
     goal_memory_pulses: int = 40     # forget the remembered goal after this many moves of drift
     trusted_goal_age: int = 4        # a goal seen within this many moves may justify a push unseen
@@ -147,7 +164,7 @@ class ControlConfig:
                 raise ValueError(f"{name} must be >= 1")
         # look_step_ms and the scan's return turn divide by turn_speed and turn_rad_per_speed_ms.
         # The pulse lengths feed Move, which rejects 0 because firmware treats it as non-stop.
-        for name in ("turn_speed", "max_turn_ms", "turn_rad_per_speed_ms",
+        for name in ("turn_speed", "turn_rad_per_speed_ms", "centre_turn_rad_per_unit", "max_centre_turn_rad",
                      "min_pulse_ms", "max_approach_ms", "strafe_ms", "push_ms"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be > 0")
@@ -163,9 +180,13 @@ class ControlConfig:
             raise ValueError("confirm_hits must be between 1 and confirm_window")
         if not 0 < self.min_turn_speed <= self.turn_speed:
             raise ValueError("min_turn_speed must be in (0, turn_speed]")
+        if not 0 <= self.pulse_dead_ms <= 300:
+            raise ValueError("pulse_dead_ms must be in [0, 300]")
+        if not 0.5 <= self.right_turn_scale <= 2.0:
+            raise ValueError("right_turn_scale must be in [0.5, 2.0]")
         # The firmware clamps pulses to 5000 ms while Python waits the full length it asked for.
-        if self.look_step_ms > 5000:
-            raise ValueError("look_step_ms exceeds the firmware's 5000 ms pulse limit")
+        if max(self.pulse_ms(d, self.look_step_ms) for d in ROTATIONS) > 5000:
+            raise ValueError("a look step pulse exceeds the firmware's 5000 ms limit")
 
     @property
     def look_step_rad(self) -> float:
@@ -182,9 +203,23 @@ class ControlConfig:
         return max(1, round(self.look_step_rad / (self.turn_speed * self.turn_rad_per_speed_ms)))
 
     @property
+    def turn_ms_per_unit(self) -> float:
+        return self.centre_turn_rad_per_unit / (self.turn_speed * self.turn_rad_per_speed_ms)
+
+    @property
+    def max_turn_ms(self) -> int:
+        return round(self.max_centre_turn_rad / (self.turn_speed * self.turn_rad_per_speed_ms))
+
+    @property
     def pulses_per_lap(self) -> int:
         """Look steps for one full turn, with 10% to spare."""
         return math.ceil(1.1 * 2 * math.pi / self.look_step_rad)
+
+    def pulse_ms(self, direction: str, ms: int) -> int:
+        """Pulse to send so the motors turn or drive for ms, which is how every move is sized."""
+        if direction == "rotate_right":
+            ms = round(ms * self.right_turn_scale)
+        return ms + self.pulse_dead_ms
 
 
 class HeadingMemory:
