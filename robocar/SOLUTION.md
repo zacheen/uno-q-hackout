@@ -2,7 +2,7 @@
 
 This robot finds a ball with its camera, lines the ball up with the goal, pushes it across the goal line, and goes back for the ball when a shot misses. Everything runs on the Arduino UNO Q. The Linux side decodes camera frames, runs the detector and makes every decision, and the MCU side drives the motors with timed stops.
 
-Every entry marked "to be measured", "to be filled" or "to be confirmed" is recorded on the event day.
+Settings marked as not measured kept their defaults on the event robot.
 
 ## How it works
 
@@ -17,7 +17,7 @@ The controller is a state machine.
 
 | Phase | What the robot does | Leaves when |
 | --- | --- | --- |
-| search | Turns half a field of view between looks, toward the edge the ball rolled over, else toward the remembered goal, else toward the side the ball was last seen, and backs off after each lap to uncover a ball sitting below the camera | The ball is seen, or three laps pass |
+| search | Turns half a field of view between looks, toward the edge the ball rolled over, else toward the remembered goal, else toward the side the ball was last seen, and backs off after each lap to uncover a ball sitting below the camera | The ball is seen, or the lap budget passes, three laps by default and two on the event robot |
 | approach | Turns to centre the ball, then drives toward it in pulses that shrink as it gets closer | The ball is close enough to line up |
 | scan | Spins in place to find the goal while remembering where the ball was, turns one more look step when only one post has shown so the other comes into the same frame, then turns back to the ball in one direction chosen once, so a miscalibrated turn rate cannot leave it rocking over the same arc | The goal has been seen and the ball is back in view, or `scan_laps` laps pass and the ball is pushed straight |
 | lineup | Slides sideways while turning to keep the ball centred, which orbits the ball until the goal sits directly behind it | The ball and goal line up, or the orbit budget runs out |
@@ -28,7 +28,7 @@ Lining up works because a sideways slide moves the nearby ball across the image 
 
 The robot also keeps a rough heading by adding up the turns it has commanded. That lets it remember which way the goal lay after the goal leaves the image, so it orbits the short way round. Only a sighting from the last few moves can start a push, because the remembered heading drifts with every turn.
 
-Near the ball, the ball itself hides a goal that lies right behind it, which is exactly where the goal is once the two line up. A goal seen within the last few moves and within 12 degrees of the ball therefore counts as lined up. When lineup has neither a goal in view nor one in memory, it can first strafe about one ball width to look past the ball, because spinning in place never sees behind it. That step is off by default and meant for starts that put robot, ball and goal in one line, where it was 2 to 12 seconds faster in simulation. When only one post is known, the same strafe looks for the other before lining up, because lining up with a lone post aims the ball at the post. With `scan_for_goal` off, lineup skips both the strafe and the scan and pushes a near ball straight whenever no goal is in view or memory, and still lines up with a goal it does see. The event robot scans for one lap, which with the turn rate set below the measured one turns more than a full circle.
+Near the ball, the ball itself hides a goal that lies right behind it, which is exactly where the goal is once the two line up. A goal seen within the last few moves and within 12 degrees of the ball therefore counts as lined up. When lineup has neither a goal in view nor one in memory, it can first strafe about one ball width to look past the ball, because spinning in place never sees behind it. That step is off by default and meant for starts that put robot, ball and goal in one line, where it was 2 to 12 seconds faster in simulation. The event robot takes three strafes, because its start layout was not known in advance. When only one post is known, the same strafe looks for the other before lining up, because lining up with a lone post aims the ball at the post. With `scan_for_goal` off, lineup skips both the strafe and the scan and pushes a near ball straight whenever no goal is in view or memory, and still lines up with a goal it does see. The event robot scans for one lap, which with the turn rate set below the measured one turns more than a full circle.
 
 Centring turns are sized as angles and turned into pulse lengths through the calibrated turn rate, the same way the search's look steps are. When one overshoots so far that the ball lands outside the centre band on the other side, the next ones shrink, and a turn that would fall below the minimum pulse length turns slower instead. A turn that falls short grows them back, never past the calibrated size, so a shrink caused by detector jitter wears off. In simulation a turn rate twice the calibrated one scored 142 of 200 with this and 7 without it, while the calibrated rate scored 199 and 196.
 
@@ -45,8 +45,8 @@ The controller sizes every move as the time the motors should run, and the run l
 
 - An Arduino UNO Q on a Hiwonder miniAuto mecanum chassis, with the organisers' sketch driving the four motors.
 - The ESP32-S3 camera supplied with the robot. It serves 320×240 MJPEG frames over its own Wi-Fi access point and reports its BOOT button to the MCU over I2C.
-- The four-channel line sensor on the chassis, used only for the taped boundary.
-- The ball and goal from the challenge. Their colour, size and placement are to be filled.
+- The four-channel line sensor on the chassis, meant for a taped boundary and unused at the event, whose field had none.
+- The challenge's black and white ball, and a goal marked by two fluorescent yellow cones. The start layout was not known in advance, and the field had no obstacles.
 
 ## Source layout
 
@@ -74,10 +74,10 @@ The detector is an Edge Impulse FOMO model with two classes, `soccerball` and `g
 | --- | --- |
 | Edge Impulse project | A clone of the organisers' public project 1144501 made after they relabelled the goal as two posts, with the resize mode set to Squash. An earlier clone, from before the relabelling, had its 125 goal samples enabled by hand |
 | Model file in `python/` | `uno-q-hackout-new-linux-aarch64-v1.eim`, built for Arduino UNO Q with the EON Compiler and int8 quantisation, and kept out of git by `.gitignore` because of its 13.6 MB |
-| Training images | to be filled for the relabelled data. The earlier clone had 255, taken with the robot camera, giving 211 objects, 125 goal and 86 soccer_ball |
-| Test images | to be filled for the relabelled data. The earlier clone had 66 |
+| Training images | Not recorded for the relabelled data. The earlier clone had 255, taken with the robot camera, giving 211 objects, 125 goal and 86 soccer_ball |
+| Test images | Not recorded for the relabelled data. The earlier clone had 66 |
 | Training cycles and learning rate | 150 cycles at 0.001, with data augmentation |
-| Test accuracy | to be filled for the relabelled data. The earlier model scored F1 86.4% on the validation set for int8, with 96% of goals and 93.3% of balls found and no background taken for either |
+| Test accuracy | Not recorded for the relabelled data. The earlier model scored F1 86.4% on the validation set for int8, with 96% of goals and 93.3% of balls found and no background taken for either |
 
 The camera's exposure and white balance cannot be changed through its driver, so robustness to the venue lighting has to come from the training images. `tools/capture_frames.py` saves frames straight from the robot camera while a laptop is on the camera's Wi-Fi, which keeps training images on the same sensor and JPEG path the robot sees while driving.
 
@@ -108,20 +108,20 @@ Every controller threshold lives in `ControlConfig` in `python/control.py`, whos
 
 | Setting | How to measure it | Measured value |
 | --- | --- | --- |
-| `turn_rad_per_speed_ms`, `pulse_dead_ms`, `right_turn_scale` and `center_band` | Set `MODE = "turn_check"` in `python/main.py`, put the robot on the field surface and press BOOT. Read three things against a tape line, the angle ten left turns made, which are sized to add up to one full turn when the current settings are right, which side of its starting direction ten right turns leave the robot and by how much, such as 20L or 15R, and the shortest of the final rising pulses after which the chassis has clearly turned, not just buzzed or twitched. Then run `python tools/turn_calc.py --left-deg <angle> --end <side reading> --dead-ms <shortest>` before editing anything, because it reads the settings the robot ran with. It sets the turn rate to 0.75 of the measured one, so real turns run faster than the controller assumes. In simulation real turns from 0.9 to 1.5 times the assumed rate scored 198 to 199 of 200 while 0.8 times scored 188, and a battery that slows the turns by a quarter during the day still leaves them inside that range. It also widens `center_band` until the slowest centring turn fits inside it, so centring does not rock across the ball, and never narrows it. Repeat the check after changing `turn_speed`, `hfov_deg` or `look_step_frac`, which change the pulse length. Calibrate these first, because search, scan and centring all depend on them | 7.83e-6, 60 ms, 1.0 and 0.08, from ten left look steps that turned about 240 degrees where 350 were expected, right look steps that came back to the start, and a ladder that turned about 45 degrees in all |
-| `turn_speed` | If the look steps of `turn_check` barely turn the robot, raise this by 20. The sketch gives each wheel half the PWM for a turn that it gives for driving, so turns are the first move to stall | to be measured |
-| `hfov_deg` | Read the angle between the left and right image edges with a ruler at a known distance | to be measured |
-| `min_turn_speed` | `turn_check` makes three turns at this speed, right, left and right again so each one starts against the gear backlash of the last, and each as long as `min_pulse_ms`. If any of them leaves the robot still, raise this by 10 and run the check again. Do not lower it to make centring settle, since a stall costs more than a wider `center_band`. Centring slows toward this speed only while overshoots keep its turns shrunk | to be measured |
+| `turn_rad_per_speed_ms`, `pulse_dead_ms`, `right_turn_scale` and `center_band` | Set `MODE = "turn_check"` in `python/main.py`, put the robot on the field surface and press BOOT. Read three things against a tape line, the angle ten left turns made, which are sized to add up to one full turn when the current settings are right, which side of its starting direction ten right turns leave the robot and by how much, such as 20L or 15R, and the shortest of the final rising pulses after which the chassis has clearly turned, not just buzzed or twitched. Then run `python tools/turn_calc.py --left-deg <angle> --end <side reading> --dead-ms <shortest>` before editing anything, because it reads the settings the robot ran with. It sets the turn rate to 0.75 of the measured one, so real turns run faster than the controller assumes. In simulation real turns from 0.9 to 1.5 times the assumed rate scored 198 to 199 of 200 while 0.8 times scored 188, and a battery that slows the turns by a quarter during the day still leaves them inside that range. It also widens `center_band` until the slowest centring turn fits inside it, so centring does not rock across the ball, and never narrows it. Repeat the check after changing `turn_speed`, `hfov_deg` or `look_step_frac`, which change the pulse length. Calibrate these first, because search, scan and centring all depend on them | 7.19e-6, 60 ms, 1.0 and 0.08. The first check turned about 240 degrees where 350 were expected, its right look steps came back to the start, and its ladder turned about 45 degrees in all. The second, with the settings from the first, fell 30 degrees short of a full turn, and the third, with 7.19e-6, landed within 20 degrees of it |
+| `turn_speed` | If the look steps of `turn_check` barely turn the robot, raise this by 20. The sketch gives each wheel half the PWM for a turn that it gives for driving, so turns are the first move to stall | 180, the default, since every look step turned the robot |
+| `hfov_deg` | Read the angle between the left and right image edges with a ruler at a known distance | Not measured, 70 by default |
+| `min_turn_speed` | `turn_check` makes three turns at this speed, right, left and right again so each one starts against the gear backlash of the last, and each as long as `min_pulse_ms`. If any of them leaves the robot still, raise this by 10 and run the check again. Do not lower it to make centring settle, since a stall costs more than a wider `center_band`. Centring slows toward this speed only while overshoots keep its turns shrunk | 130, the default, since each of the three slow turns moved the robot |
 | `near_y` | Place the ball where lining up should start, about 25 cm ahead, and read `ball.y` in `detect_only` | 0.60, since a ball 25 cm ahead read 0.625 every frame, and FOMO reports y only at cell centres such as 0.542, 0.625 and 0.708 |
-| `align_band` | Place the ball in front of the goal at several spots and read how far apart the two centres are | to be measured |
-| `black_bit` in `python/hardware.py` | Start the app with the robot over tape and over the floor, and compare `line_digital` | to be measured |
-| `MOTOR_POSITIVE_DIR` in `sketch/sketch.ino` | Use the motor calibration supplied with the robot, then check that every wheel turns both ways and that rotate pulses spin the robot on the spot | to be filled |
-| `confirm_hits` | Keep 1 unless `detect_only` reports a ball where there is none, then set 2 | to be measured |
-| `HSV_LOWER` and `HSV_UPPER` in `python/main.py` | Only needed without a model. Adjust until `detect_only` reports the ball in every position and nothing once it is removed | to be measured |
-| `sidestep_pulses` | Ask where the robot, ball and goal start. If they start in one line, set 3 and check on the field that three strafe pulses move the robot about one ball width, adding or removing pulses to match | to be confirmed |
-| `search_when_lost` | Ask the judges whether the robot may search for the ball after losing it, or must stop | to be confirmed |
+| `align_band` | Place the ball in front of the goal at several spots and read how far apart the two centres are | Not measured, 0.07 by default |
+| `black_bit` in `python/hardware.py` | Start the app with the robot over tape and over the floor, and compare `line_digital` | Not needed, because the event field had no boundary and the guard stays off |
+| `MOTOR_POSITIVE_DIR` in `sketch/sketch.ino` | Use the motor calibration supplied with the robot, then check that every wheel turns both ways and that rotate pulses spin the robot on the spot | Left as supplied, since forward pulses and turns moved the robot the right way |
+| `confirm_hits` | Keep 1 unless `detect_only` reports a ball where there is none, then set 2 | 1. The false balls seen at the event sat above the far edge of the floor, which the perception now ignores, instead of needing a second sighting |
+| `HSV_LOWER` and `HSV_UPPER` in `python/main.py` | Only needed without a model. Adjust until `detect_only` reports the ball in every position and nothing once it is removed | Not needed, because the model loaded |
+| `sidestep_pulses` | Ask where the robot, ball and goal start. If they start in one line, set 3 and check on the field that three strafe pulses move the robot about one ball width, adding or removing pulses to match | 3, because the start layout was not known in advance. Whether three strafes move the robot about one ball width was not checked |
+| `search_when_lost` | Ask the judges whether the robot may search for the ball after losing it, or must stop | On, as the event rules allowed a search. A lost ball gets a lap, a back-off and a second lap, then the run stops, which scored 297 of 300 in simulation against 281 for a single lap |
 
-The floor surface, the lighting and the battery voltage reported as `battery_mv` in the startup sensors line, all taken when these values were measured, are to be filled. Turning and detection both depend on them.
+These values were measured on the event's carpet under indoor lighting, with the battery reading 10.9 to 11.4 V as `battery_mv` in the startup sensors line. Turning and detection both depend on all three. One battery fell to 9.4 V within about ten minutes of runs, so batteries were swapped often.
 
 ## Testing without the robot
 
@@ -139,18 +139,12 @@ The simulator runs the same controller and run loop against a top-down model of 
 
 ## Results
 
-Recorded on the event field. Each time runs from the BOOT press to the ball crossing the goal line.
-
-| Attempt | Robot start | Ball position | Outcome | Time (s) | Notes |
-| --- | --- | --- | --- | --- | --- |
-| 1 | to be filled | to be filled | to be filled | to be filled | |
-
-Goals out of attempts and the median time to a goal are to be filled.
+No scored attempt was timed before submission. In practice runs on the event floor the robot found the ball, drove to it and pushed it, but the model found the goal cones in only one frame across those runs, including a full scan lap, so most pushes went straight ahead.
 
 ## Credits
 
 - The starter app, robot driver, firmware and Makefile come from the organisers' uno-q-hackout repository.
 - The Edge Impulse Linux Python SDK 1.2.2 runs the `.eim` model. It is copied unchanged into `python/edge_impulse_linux/` with its Clear BSD license, because the board has no Internet access to install it.
-- The sources of the training images and labels are to be filled. They are the organisers' Edge Impulse project, our own robot camera captures, or both.
+- The training images and labels come from the organisers' public Edge Impulse project 1144501.
 - The orbit-to-align idea follows the shooting behaviour in the NAIST RoboCup-99 team description, and the reasoning about turns and slides follows the visual servoing tutorial by Chaumette and Hutchinson.
 - Backing off after a lost ball and the line-sensor priority were informed by the 2024 RoboCup Junior Open soccer code published by chamburr.
