@@ -1,10 +1,11 @@
-"""Turn the readings of one MODE = "turn_check" run into the turn settings for ControlConfig.
+"""Turn the readings of one MODE = "turn_check" run into the turn settings for FIELD.
 
-Run it before editing ControlConfig, because it reads the settings the robot ran with.
+Run it before editing python/field_config.py, because it reads the settings the robot ran with.
 
     conda run -n ML python robocar/tools/turn_calc.py --left-deg 300 --end 20L --dead-ms 60
 """
 import argparse
+import dataclasses
 import math
 import re
 import sys
@@ -13,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 
 from calibration import calibrate  # noqa: E402
-from control import ControlConfig  # noqa: E402
+from field_config import FIELD  # noqa: E402
 
 
 def parse_end(text: str) -> float:
@@ -34,23 +35,24 @@ def main() -> None:
     parser.add_argument("--dead-ms", type=int, required=True,
                         help="shortest ladder pulse after which the chassis had clearly turned")
     args = parser.parse_args()
-    cfg = ControlConfig()
+    cfg = FIELD
     result = calibrate(cfg, args.left_deg, args.end, args.dead_ms)
-    print("Set these in ControlConfig in python/control.py, then deploy again.")
-    print(f"    turn_rad_per_speed_ms: float = {result.turn_rad_per_speed_ms:.3g}")
-    print(f"    pulse_dead_ms: int = {result.pulse_dead_ms}")
-    print(f"    right_turn_scale: float = {result.right_turn_scale:.2f}")
-    print(f"    center_band: float = {result.center_band:.2f}")
+    print("Set these in FIELD in python/field_config.py, then deploy again.")
+    print(f"    turn_rad_per_speed_ms={result.turn_rad_per_speed_ms:.3g},")
+    print(f"    pulse_dead_ms={result.pulse_dead_ms},")
+    print(f"    right_turn_scale={result.right_turn_scale:.2f},")
+    print(f"    center_band={result.center_band:.2f},")
     push_band = max(cfg.push_band, result.center_band)
     if push_band > cfg.push_band:
-        print(f"    push_band: float = {push_band:.2f}")
+        print(f"    push_band={push_band:.2f},")
         print("Turns this fast make centring coarse. Lowering turn_speed and min_turn_speed by 30 each and "
               "running turn_check again would keep center_band narrower.")
     print(f"center_band fits the slowest centring turn, about {math.degrees(result.slowest_turn_rad):.1f} degrees, "
           f"so centring does not rock across the ball.")
     try:
-        ControlConfig(turn_rad_per_speed_ms=result.turn_rad_per_speed_ms, pulse_dead_ms=result.pulse_dead_ms,
-                      right_turn_scale=result.right_turn_scale, center_band=result.center_band, push_band=push_band)
+        dataclasses.replace(cfg, turn_rad_per_speed_ms=result.turn_rad_per_speed_ms, pulse_dead_ms=result.pulse_dead_ms,
+                            right_turn_scale=result.right_turn_scale, center_band=result.center_band,
+                            push_band=push_band)
     except ValueError as exc:
         print(f"[WARN] ControlConfig rejects these values ({exc}). Check the readings and run turn_check again.")
 

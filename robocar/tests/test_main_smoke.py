@@ -24,10 +24,10 @@ def test_main_imports_and_every_mode_builds():
 def test_turn_check_sends_look_steps_both_ways_slow_turns_back_and_forth_then_the_dead_time_ladder():
     import robot_client
     from calibration import DEAD_LADDER_MS, SLOW_TURNS, TURN_CHECK_PULSES
-    from control import ControlConfig
+    from field_config import FIELD
 
     main = importlib.import_module("main")
-    cfg = ControlConfig()
+    cfg = FIELD
     sleep = robot_client.time.sleep
     app_utils.Bridge.sensors["program_enabled"] = True
     app_utils.calls.clear()

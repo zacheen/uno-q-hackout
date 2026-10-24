@@ -7,7 +7,8 @@ from arduino.app_utils import App
 
 from calibration import DEAD_LADDER_MS, SLOW_TURNS, TURN_CHECK_PULSES
 from camera import LatestFrameReader
-from control import BallGoalController, ControlConfig
+from control import BallGoalController
+from field_config import FIELD
 from hardware import LineSensorGuard, RobotExecutor
 from perception import CameraPerception, Detector, EimDetector, HsvBallDetector
 from robot_client import MiniAutoRobot
@@ -58,7 +59,7 @@ def motion_check() -> None:
 def turn_check() -> None:
     # Run with the wheels on the floor. The pulses are the search's own look steps sent the way
     # the controller sends them, so tools/turn_calc.py can undo whatever settings were in force.
-    cfg = ControlConfig()
+    cfg = FIELD
     expected = TURN_CHECK_PULSES * cfg.turn_speed * cfg.look_step_ms * cfg.turn_rad_per_speed_ms
     print(f"[INFO] {TURN_CHECK_PULSES} left look steps at speed {cfg.turn_speed}, the controller expects "
           f"{math.degrees(expected):.0f} degrees in total")
@@ -105,7 +106,7 @@ def open_log() -> Optional[RunLog]:
 
 
 def play(perception: CameraPerception) -> None:
-    controller = BallGoalController(ControlConfig())
+    controller = BallGoalController(FIELD)
     guard = LineSensorGuard(robot) if LINE_GUARD_ENABLED else None
     log = open_log()
     try:
