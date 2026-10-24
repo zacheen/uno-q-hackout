@@ -138,7 +138,7 @@ class CameraPerception:
         self._last_jpeg = frame.jpeg
         detections = self._detector.detect(bgr)
         return Observation(
-            ball=_best(detections, BALL),
+            ball=_nearest_ball(detections),
             goal=_goal_mouth(detections),
             frame_age_s=time.monotonic() - frame.received_at,
             seq=frame.seq,
@@ -155,8 +155,13 @@ def _canonical(label: str) -> str:
     return {"soccerball": BALL, "goal": GOAL}.get(key, label)
 
 
-def _best(detections: Sequence[Detection], label: str) -> Optional[Detection]:
-    return max((d for d in detections if d.label == label), key=lambda d: d.score, default=None)
+def _nearest_ball(detections: Sequence[Detection]) -> Optional[Detection]:
+    """The ball lowest in the image, which is the nearest one, and the higher score among equals.
+
+    Picking by score alone let a far detection near the top of the image win every other frame on
+    the event robot, so centring turned toward a different ball at each step and never drove on.
+    """
+    return max((d for d in detections if d.label == BALL), key=lambda d: (d.y, d.score), default=None)
 
 
 def _goal_mouth(detections: Sequence[Detection]) -> Optional[Detection]:

@@ -3,7 +3,7 @@ import numpy as np
 
 from camera import Frame
 from control import BALL, GOAL, Detection
-from perception import CameraPerception, HsvBallDetector, _canonical, _goal_mouth
+from perception import CameraPerception, HsvBallDetector, _canonical, _goal_mouth, _nearest_ball
 
 ORANGE_BGR = (0, 128, 255)
 
@@ -109,3 +109,12 @@ def test_the_goal_is_the_point_between_the_two_posts():
     # A single post, or two merged into one cell, is all the robot can go by.
     assert _goal_mouth([post(0.2, 0.3, 0.8), ball]) == post(0.2, 0.3, 0.8)
     assert _goal_mouth([ball]) is None
+
+
+def test_the_nearest_ball_wins_over_a_far_one_with_a_higher_score():
+    near = Detection(BALL, 0.3, 0.54, 0.7)
+    far = Detection(BALL, 0.8, 0.12, 1.0)
+    post = Detection(GOAL, 0.5, 0.9, 1.0)
+    assert _nearest_ball([far, post, near]) == near
+    assert _nearest_ball([Detection(BALL, 0.3, 0.54, 0.6), near]) == near
+    assert _nearest_ball([post]) is None
