@@ -105,6 +105,34 @@ def test_scans_for_the_goal_when_its_direction_is_unknown():
     assert action.ms == ControlConfig().look_step_ms
 
 
+def test_scan_return_keeps_turning_one_way_when_the_ball_is_not_where_memory_says():
+    c = _controller()
+    _confirmed(c, _obs(ball=(0.5, 0.7)))
+    for _ in range(2):
+        c.step(_obs())
+    first = c.step(_obs(goal=(0.5, 0.3)))
+    assert c.phase is Phase.SCAN and first.direction == "rotate_right"
+    # The remembered ball passes the view and ends up on the left.
+    turns = [c.step(_obs()).direction for _ in range(8)]
+    assert c.phase is Phase.SCAN and turns == ["rotate_right"] * 8
+
+
+def test_a_second_scan_chooses_its_return_turn_afresh():
+    c = _controller(goal_memory_pulses=2)
+    _confirmed(c, _obs(ball=(0.5, 0.7)))
+    for _ in range(2):
+        c.step(_obs())
+    assert c.step(_obs(goal=(0.5, 0.3))).direction == "rotate_right"
+    # Ball back in view, then the goal memory runs out and lineup starts a second scan.
+    for _ in range(3):
+        c.step(_obs(ball=(0.5, 0.7)))
+    assert c.phase is Phase.SCAN
+    for _ in range(5):
+        c.step(_obs())
+    # Six look steps left put the remembered ball about 150 degrees to the left, so left is the short way.
+    assert c.step(_obs(goal=(0.5, 0.3))).direction == "rotate_left"
+
+
 def test_waits_briefly_then_searches_when_a_centred_ball_disappears():
     c = _controller()
     _confirmed(c, _obs(ball=(0.5, 0.3)))

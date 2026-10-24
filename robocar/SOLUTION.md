@@ -19,7 +19,7 @@ The controller is a state machine.
 | --- | --- | --- |
 | search | Turns half a field of view between looks, toward the edge the ball rolled over, else toward the remembered goal, else toward the side the ball was last seen, and backs off after each lap to uncover a ball sitting below the camera | The ball is seen, or three laps pass |
 | approach | Turns to centre the ball, then drives toward it in pulses that shrink as it gets closer | The ball is close enough to line up |
-| scan | Spins in place to find the goal while remembering where the ball was, then turns back to the ball | The goal has been seen and the ball is back in view |
+| scan | Spins in place to find the goal while remembering where the ball was, then turns back to the ball in one direction chosen once, so a miscalibrated turn rate cannot leave it rocking over the same arc | The goal has been seen and the ball is back in view |
 | lineup | Slides sideways while turning to keep the ball centred, which orbits the ball until the goal sits directly behind it | The ball and goal line up, or the orbit budget runs out |
 | push | Drives forward in short pulses, and keeps going while the goal stays ahead even after the ball drops below the camera | The ball and goal drift apart, the ball is lost, or the push budget runs out |
 | recover | Backs off to widen the view | It goes back to approach if the ball is visible, and to search otherwise |
@@ -81,7 +81,7 @@ python sim/robustness.py --episodes 150
 
 The unit tests cover the stream parser against the firmware's exact framing, the frozen and corrupt frame checks, the colour detector, the controller's decisions and its rejection of threshold combinations that would loop forever, every way the run loop can end, the line sensor guard, the frame capture tool, and an import of `main.py` against a stand-in for the board-only Arduino module.
 
-The simulator runs the same controller and run loop against a top-down model of the robot, ball, taped field and camera. Its physical constants are guesses, so it shows that the decision logic is sound, not how the real robot will score. On 300 random starts it scored 299 times with a median of 23.5 seconds. The robustness sweep changes one assumption at a time and found that an overestimated turn rate hurts most, which is why that value is calibrated first.
+The simulator runs the same controller and run loop against a top-down model of the robot, ball, taped field and camera. Its physical constants are guesses, so it shows that the decision logic is sound, not how the real robot will score. On 300 random starts it scored 299 times with a median of 23.3 seconds. The robustness sweep changes one assumption at a time and found that an overestimated turn rate hurts most, which is why that value is calibrated first.
 
 ## Results
 

@@ -167,7 +167,7 @@ class ControlConfig:
         """Rotate pulse length that turns one look step.
 
         Search and scan both turn by this, so turn_rad_per_speed_ms is the first value
-        to calibrate. In simulation, turns 40% slower than assumed cost about a quarter
+        to calibrate. In simulation, turns 40% slower than assumed cost about a fifth
         of the goals.
         """
         return max(1, round(self.look_step_rad / (self.turn_speed * self.turn_rad_per_speed_ms)))
@@ -256,7 +256,7 @@ class BallGoalController:
         self._phase_pulses = 0
         self._search_pulses = 0
         self._goal_scan_failed = False
-        self._return_turn = "rotate_right"  # the scan spins left, so the way back is usually right
+        self._return_turn: Optional[str] = None
         # -1 or +1 if the ball left over the left or right edge, read only while it is missing.
         self._exit_side = 0
         self._search_turn: Optional[str] = None
@@ -405,13 +405,18 @@ class BallGoalController:
         relative = self._memory.ball_relative()
         if relative is None or self._phase_pulses >= 4 * lap:
             return self._lose_ball("lost the ball while scanning")
-        if abs(relative) > self._memory.half_fov():
+        if self._return_turn is None:
+            # Chosen once per scan. With an overestimated turn rate the remembered ball passes
+            # the view without the real one appearing, and re-choosing then reversed the turn
+            # every few pulses, so the robot rocked over the same arc.
             self._return_turn = "rotate_left" if relative > 0 else "rotate_right"
+        toward = (relative > 0) == (self._return_turn == "rotate_left")
+        if toward and abs(relative) > self._memory.half_fov():
             self.reason = "turn back to the remembered ball"
             ms = abs(relative) / (self.cfg.turn_speed * self.cfg.turn_rad_per_speed_ms)
             return Move(self._return_turn, self.cfg.turn_speed, self._clamp_ms(ms, self.cfg.look_step_ms))
-        # Memory says the ball should be in view but it is not, which usually means the
-        # turn rate is overestimated and the robot under-rotated, so keep turning the same way.
+        # Memory says the ball is in view or already passed, but it is not seen, which usually
+        # means the turn rate is overestimated and the robot under-rotated.
         self.reason = "ball not where memory says, keep turning"
         return Move(self._return_turn, self.cfg.turn_speed, self.cfg.look_step_ms)
 
@@ -476,6 +481,8 @@ class BallGoalController:
             self._search_pulses = 0
             self._search_turn = None
             self._sightings.clear()
+        elif phase is Phase.SCAN:
+            self._return_turn = None
         self.phase = phase
         self.reason = reason
         self._phase_pulses = 0
