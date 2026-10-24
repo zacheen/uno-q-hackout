@@ -60,6 +60,7 @@ The controller sizes every move as the time the motors should run, and the run l
 | `python/runtime.py` | The run loop shared by the robot and the simulator, with every way a run can end |
 | `python/hardware.py` | The motor executor and the line sensor guard |
 | `python/robot_client.py`, `sketch/` | The organisers' robot driver and MCU firmware, unchanged |
+| `python/edge_impulse_linux/` | The Edge Impulse Linux Python SDK, unchanged, with its license |
 | `sim/` | The top-down simulator and the robustness sweep |
 | `tests/` | Unit tests that run on an ordinary computer |
 | `tools/` | Frame capture for training images, the turn calibration calculator and plotting of run logs |
@@ -81,7 +82,7 @@ The camera's exposure and white balance cannot be changed through its driver, so
 
 ## Running it
 
-1. Deploy once while the UNO Q still has Internet access, because the camera network has none. The app installs `python/requirements.txt`, which holds `edge_impulse_linux` for the `.eim` model, the first time it starts. Then join the camera's Wi-Fi from UNO Q Linux and keep USB connected for deploying.
+1. Connect the UNO Q by USB for deploying. The prepared board already joins the camera's Wi-Fi, which has no Internet access, so the app installs nothing at start. The Edge Impulse SDK that runs the `.eim` model is copied into `python/edge_impulse_linux/`, and the numpy, OpenCV and pyaudio it needs come with the App Lab container.
 2. Put the exported `.eim` model in `python/`. Without one the app falls back to a colour threshold, which finds the ball but never the goal.
 3. Deploy from a terminal in this folder.
 
@@ -148,7 +149,7 @@ Goals out of attempts and the median time to a goal are to be filled.
 ## Credits
 
 - The starter app, robot driver, firmware and Makefile come from the organisers' uno-q-hackout repository.
-- The Edge Impulse Linux Python SDK runs the `.eim` model.
+- The Edge Impulse Linux Python SDK 1.2.2 runs the `.eim` model. It is copied unchanged into `python/edge_impulse_linux/` with its Clear BSD license, because the board has no Internet access to install it.
 - The sources of the training images and labels are to be filled. They are the organisers' Edge Impulse project, our own robot camera captures, or both.
 - The orbit-to-align idea follows the shooting behaviour in the NAIST RoboCup-99 team description, and the reasoning about turns and slides follows the visual servoing tutorial by Chaumette and Hutchinson.
 - Backing off after a lost ball and the line-sensor priority were informed by the 2024 RoboCup Junior Open soccer code published by chamburr.
