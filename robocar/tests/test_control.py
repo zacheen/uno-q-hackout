@@ -43,7 +43,7 @@ def test_config_rejects_values_that_recurse_or_divide_by_zero():
                 dict(strafe_ms=0), dict(push_ms=0), dict(look_step_frac=0.0), dict(confirm_hits=4),
                 dict(turn_rad_per_speed_ms=1e-7), dict(hfov_deg=0.0), dict(hfov_deg=180.0),
                 dict(edge_band=0.5), dict(min_turn_speed=0), dict(min_turn_speed=181),
-                dict(pulse_dead_ms=-1), dict(pulse_dead_ms=301), dict(right_turn_scale=0.49),
+                dict(pulse_dead_ms=-1), dict(pulse_dead_ms=301), dict(right_turn_scale=0.49), dict(sidestep_pulses=-1),
                 dict(right_turn_scale=2.01)):
         assert _raises(ValueError, ControlConfig, **bad), f"accepted {bad}"
 
@@ -173,6 +173,28 @@ def test_scans_for_the_goal_when_its_direction_is_unknown():
     action = _confirmed(c, _obs(ball=(0.5, 0.7)))
     assert c.phase is Phase.SCAN and action.direction == "rotate_left"
     assert action.ms == ControlConfig().look_step_ms
+
+
+def test_steps_aside_before_scanning_and_lines_up_once_the_goal_shows():
+    c = _controller(sidestep_pulses=2)
+    assert _confirmed(c, _obs(ball=(0.5, 0.7))) == Move("left", c.cfg.strafe_speed, c.cfg.strafe_ms)
+    assert c.reason == "step aside to look past the ball"
+    c.step(_obs(ball=(0.5, 0.7), goal=(0.8, 0.3)))
+    assert c.phase is Phase.LINEUP and c.reason == "orbit to line up"
+
+
+def test_scans_once_the_sidesteps_run_out():
+    c = _controller(sidestep_pulses=2)
+    assert _confirmed(c, _obs(ball=(0.5, 0.7))).direction == "left"
+    assert c.step(_obs(ball=(0.5, 0.7))).direction == "left"
+    assert c.step(_obs(ball=(0.5, 0.7))).direction == "rotate_left" and c.phase is Phase.SCAN
+
+
+def test_each_lineup_gets_its_own_sidesteps():
+    c = _controller(sidestep_pulses=1)
+    assert _confirmed(c, _obs(ball=(0.5, 0.7))).direction == "left"
+    assert c.step(_obs(ball=(0.5, 0.4))).direction == "forward" and c.phase is Phase.APPROACH
+    assert c.step(_obs(ball=(0.5, 0.7))).direction == "left"
 
 
 def test_scan_return_keeps_turning_one_way_when_the_ball_is_not_where_memory_says():

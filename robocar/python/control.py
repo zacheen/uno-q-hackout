@@ -112,20 +112,24 @@ class ControlConfig:
     # in main.py turns look steps for this, since short pulses are expected to lose more to
     # motor spin-up. Set turn_rad_per_speed_ms to about 0.75 of the measured value, which keeps
     # real turns faster than assumed. In simulation real turns 0.9 to 1.5 times the assumed rate
-    # scored 197 to 199 of 200, while 0.8 times scored 188 and 2 times 144. Measure again after
+    # scored 198 to 199 of 200, while 0.8 times scored 188 and 2 times 142. Measure again after
     # changing turn_speed, hfov_deg or look_step_frac, which move look_step_ms.
     # hfov_deg comes from a ruler at a known distance.
     hfov_deg: float = 70.0
     turn_rad_per_speed_ms: float = 1.2e-5
     # Both come from turn_check through tools/turn_calc.py and change only the pulse sent, see
     # pulse_ms. pulse_dead_ms is the start of a pulse that moves nothing, from static friction
-    # and spin-up. In simulation 60 ms of it cost 85 of 200 goals and 100 ms all of them, and
-    # sending the true value won them back. Sending three times it scored 101 at 60 ms, because
+    # and spin-up. In simulation 60 ms of it cost 89 of 200 goals and 100 ms all of them, and
+    # sending the true value won them back. Sending three times it scored 108 at 60 ms, because
     # the shortest turn then overshoots the centre band, which tools/turn_calc.py widens to
     # match. right_turn_scale lengthens right turns for motors that turn right slower than left.
     pulse_dead_ms: int = 0
     right_turn_scale: float = 1.0
-    align_angle_deg: float = 6.0     # remembered goal this close behind the ball counts as lined up
+    # A goal seen moments ago this close behind the ball counts as lined up. Near the ball, the ball
+    # itself hides the goal within about 11 degrees, so a narrower angle waits for a sighting that
+    # cannot come. In simulation with the goal hidden that way, 12 scored 191 of 200 against 183
+    # for 6, and with nothing hidden 199 against 197.
+    align_angle_deg: float = 12.0
     goal_memory_pulses: int = 40     # forget the remembered goal after this many moves of drift
     trusted_goal_age: int = 4        # a goal seen within this many moves may justify a push unseen
 
@@ -133,6 +137,12 @@ class ControlConfig:
     max_push_pulses: int = 20
     recover_back_pulses: int = 2
     max_orbit_pulses: int = 24       # give up lining up and push anyway after this many pulses
+    # Strafes before scanning when lineup has no goal in view or memory, because spinning in place
+    # cannot see past a ball that hides the goal. Three strafes are about one ball width in
+    # simulation. Set 3 if the robot starts with ball and goal in one line, where simulation was
+    # 2 to 12 s faster and random starts scored the same. It stays off because how far a real
+    # strafe pulse goes is unknown until it is measured on the field.
+    sidestep_pulses: int = 0
     search_back_pulses: int = 2      # back off after each fruitless lap to uncover a ball at the bumper
     max_search_laps: int = 3
     # Search and scan turn this fraction of hfov between looks. Half leaves enough overlap
@@ -179,6 +189,8 @@ class ControlConfig:
             raise ValueError("confirm_hits must be between 1 and confirm_window")
         if not 0 < self.min_turn_speed <= self.turn_speed:
             raise ValueError("min_turn_speed must be in (0, turn_speed]")
+        if self.sidestep_pulses < 0:
+            raise ValueError("sidestep_pulses must be >= 0")
         if not 0 <= self.pulse_dead_ms <= 300:
             raise ValueError("pulse_dead_ms must be in [0, 300]")
         if not 0.5 <= self.right_turn_scale <= 2.0:
@@ -345,6 +357,7 @@ class BallGoalController:
         self._search_pulses = 0
         self._goal_scan_failed = False
         self._return_turn: Optional[str] = None
+        self._sidesteps = 0
         # -1 or +1 if the ball left over the left or right edge, read only while it is missing.
         self._exit_side = 0
         self._search_turn: Optional[str] = None
@@ -466,6 +479,10 @@ class BallGoalController:
                 if self._goal_scan_failed:
                     self._enter(Phase.PUSH, "goal never found, pushing straight")
                     return self._push(ball, goal)
+                if self._sidesteps < self.cfg.sidestep_pulses:
+                    self._sidesteps += 1
+                    self.reason = "step aside to look past the ball"
+                    return Move("left", self.cfg.strafe_speed, self.cfg.strafe_ms)
                 self._enter(Phase.SCAN, "goal direction unknown")
                 return self._scan(ball, goal)
             # Dead-reckoned heading drifts, so only a recent sighting may trigger a push;
@@ -581,6 +598,8 @@ class BallGoalController:
             self._sightings.clear()
         elif phase is Phase.SCAN:
             self._return_turn = None
+        elif phase is Phase.LINEUP:
+            self._sidesteps = 0
         self.phase = phase
         self.reason = reason
         self._phase_pulses = 0

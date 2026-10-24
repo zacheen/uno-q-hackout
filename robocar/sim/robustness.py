@@ -34,6 +34,7 @@ VARIANTS = {
     "60 ms dead per pulse": {"dead_ms": 60},
     "left turns 30% slow, right fast": {"turn_asymmetry": -0.3},
     "drives and strafes veer": {"forward_yaw": 1.0, "strafe_yaw": 2.0},
+    "ball hides the goal": {"ball_hides_goal": True},
 }
 
 

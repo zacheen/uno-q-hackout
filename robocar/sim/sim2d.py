@@ -47,6 +47,8 @@ class SimParams:
     # Chance per frame of a single-frame phantom ball when the real one is unseen. Real
     # phantoms such as an orange shoe persist across frames, which this does not model.
     false_ball_rate: float = 0.0
+    # The goal goes undetected while the nearer ball covers the goal's centre from the camera.
+    ball_hides_goal: bool = False
 
 
 @dataclass
@@ -95,6 +97,8 @@ class SimPerception:
         if ball is None and rate > 0 and w.rng.random() < rate:
             ball = Detection(BALL, w.rng.uniform(0.0, 1.0), w.rng.uniform(0.3, 1.0), 0.6)
         goal = self._project(GOAL, w.params.field_w / 2, w.params.field_h)
+        if goal is not None and w.params.ball_hides_goal and self._ball_covers_goal():
+            goal = None
         cells = w.params.fomo_cells
         if cells:
             ball, goal = self._snap(ball, cells), self._snap(goal, cells)
@@ -109,6 +113,22 @@ class SimPerception:
         def centre(v: float) -> float:
             return (min(cells - 1, max(0, int(v * cells))) + 0.5) / cells
         return Detection(det.label, centre(det.x), centre(det.y), det.score)
+
+    def _ball_covers_goal(self) -> bool:
+        w, p = self._world, self._world.params
+        cos_t, sin_t = math.cos(w.robot.theta), math.sin(w.robot.theta)
+
+        def from_camera(x: float, y: float) -> tuple:
+            dx, dy = x - w.robot.x, y - w.robot.y
+            return dx * cos_t + dy * sin_t - p.robot_half_len, -dx * sin_t + dy * cos_t
+
+        ball_fwd, ball_left = from_camera(w.ball_x, w.ball_y)
+        goal_fwd, goal_left = from_camera(p.field_w / 2, p.field_h)
+        ball_dist = math.hypot(ball_fwd, ball_left)
+        if ball_fwd <= 0 or ball_dist <= p.ball_r or ball_dist >= math.hypot(goal_fwd, goal_left):
+            return False
+        apart = abs(math.atan2(goal_left, goal_fwd) - math.atan2(ball_left, ball_fwd))
+        return apart < math.asin(p.ball_r / ball_dist)
 
     def _project(self, label: str, gx: float, gy: float) -> Optional[Detection]:
         w, p = self._world, self._world.params
