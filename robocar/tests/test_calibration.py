@@ -37,15 +37,18 @@ def test_calibrated_settings_make_left_and_right_look_steps_turn_alike():
     assert math.isclose(left * cfg.turn_speed, cfg.look_step_rad / SAFETY_FACTOR, rel_tol=0.01)
 
 
-def test_calibrate_flags_a_robot_whose_slowest_centring_turn_overshoots_the_centre_band():
+def test_calibrate_widens_the_centre_band_until_the_slowest_centring_turn_fits_but_never_narrows_it():
     cfg = ControlConfig()
-    slow = calibrate(cfg, *_readings(cfg, 1.2e-5, 1.2e-5, 0), 0)
+
+    def band_width(center_band):
+        return 2 * math.atan(2 * center_band * math.tan(math.radians(cfg.hfov_deg) / 2))
+
+    slow = calibrate(cfg, *_readings(cfg, 0.5e-5, 0.5e-5, 0), 0)
     fast = calibrate(cfg, *_readings(cfg, 3e-5, 3e-5, 0), 0)
-    assert slow.centring_settles and not fast.centring_settles
-    assert fast.settling_min_turn_speed < cfg.min_turn_speed
-    assert cfg.min_pulse_ms * fast.settling_min_turn_speed * 3e-5 <= fast.centre_band_rad
+    assert slow.center_band == cfg.center_band
+    assert fast.center_band > cfg.center_band and band_width(fast.center_band) > fast.slowest_turn_rad
     # Dead time counts against settling, since a long ladder reading turns the robot further.
-    assert calibrate(cfg, *_readings(cfg, 3e-5, 3e-5, 40), 40).settling_min_turn_speed < fast.settling_min_turn_speed
+    assert calibrate(cfg, *_readings(cfg, 3e-5, 3e-5, 40), 40).center_band > fast.center_band
 
 
 def test_calibrate_rejects_readings_that_cannot_come_from_the_check():

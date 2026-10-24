@@ -89,10 +89,9 @@ class ControlConfig:
     # Slowest rotate speed at which a min_pulse_ms pulse still turns the robot. A centring
     # turn that needs a shorter pulse slows toward it, but only while overshoots have kept
     # the centring turns shrunk. Check on the field that the robot really turns at this speed.
-    # 110 gives PWM 55, a little under the 65 of Hiwonder's own motor test for this chassis,
-    # because once turns ran twice the assumed rate, 130 scored 149 of 200 in simulation and 110
-    # scored 178, as slower turns are what lets centring settle.
-    min_turn_speed: int = 110
+    # 130 gives PWM 65, as in Hiwonder's own motor test for this chassis. Going lower to make
+    # centring settle risks a stall, so tools/turn_calc.py widens center_band instead.
+    min_turn_speed: int = 130
     drive_speed: int = 130           # also the speed of backward pulses in search and recover
     strafe_speed: int = 140
     push_speed: int = 170
@@ -113,17 +112,17 @@ class ControlConfig:
     # in main.py turns look steps for this, since short pulses are expected to lose more to
     # motor spin-up. Set turn_rad_per_speed_ms to about 0.75 of the measured value, which keeps
     # real turns faster than assumed. In simulation real turns 0.9 to 1.5 times the assumed rate
-    # scored 196 to 199 of 200, while 0.8 times scored 182 and 2 times 163. Measure again after
+    # scored 197 to 199 of 200, while 0.8 times scored 188 and 2 times 144. Measure again after
     # changing turn_speed, hfov_deg or look_step_frac, which move look_step_ms.
     # hfov_deg comes from a ruler at a known distance.
     hfov_deg: float = 70.0
     turn_rad_per_speed_ms: float = 1.2e-5
     # Both come from turn_check through tools/turn_calc.py and change only the pulse sent, see
     # pulse_ms. pulse_dead_ms is the start of a pulse that moves nothing, from static friction
-    # and spin-up. In simulation 60 ms of it cost 85 of 200 goals and 100 ms all of them.
-    # Sending from the true value to twice it won them back, while three times it lost a quarter
-    # again, because the shortest turn then overshoots the centre band. right_turn_scale
-    # lengthens right turns for motors that turn right slower than left.
+    # and spin-up. In simulation 60 ms of it cost 85 of 200 goals and 100 ms all of them, and
+    # sending the true value won them back. Sending three times it scored 101 at 60 ms, because
+    # the shortest turn then overshoots the centre band, which tools/turn_calc.py widens to
+    # match. right_turn_scale lengthens right turns for motors that turn right slower than left.
     pulse_dead_ms: int = 0
     right_turn_scale: float = 1.0
     align_angle_deg: float = 6.0     # remembered goal this close behind the ball counts as lined up

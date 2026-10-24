@@ -5,7 +5,7 @@ from typing import Callable, Optional
 
 from arduino.app_utils import App
 
-from calibration import DEAD_LADDER_MS, SLOW_TURN_PULSES, TURN_CHECK_PULSES
+from calibration import DEAD_LADDER_MS, SLOW_TURNS, TURN_CHECK_PULSES
 from camera import LatestFrameReader
 from control import BallGoalController, ControlConfig
 from hardware import LineSensorGuard, RobotExecutor
@@ -68,21 +68,21 @@ def turn_check() -> None:
     time.sleep(READ_PAUSE_S)
     for _ in range(TURN_CHECK_PULSES):
         robot.drive("rotate_right", speed=cfg.turn_speed, ms=cfg.pulse_ms("rotate_right", cfg.look_step_ms))
-    print(f"[INFO] read where the robot ended, from its starting direction and positive to the left. "
-          f"In {READ_PAUSE_S:.0f} s come {SLOW_TURN_PULSES} right turns at min_turn_speed {cfg.min_turn_speed}, "
-          f"and each one must visibly move the robot")
+    print(f"[INFO] read where the robot ended against its starting direction, such as 20L, 15R or 0. "
+          f"In {READ_PAUSE_S:.0f} s come {len(SLOW_TURNS)} turns back and forth at min_turn_speed "
+          f"{cfg.min_turn_speed}, and each one must visibly move the robot")
     time.sleep(READ_PAUSE_S)
-    for _ in range(SLOW_TURN_PULSES):
-        robot.drive("rotate_right", speed=cfg.min_turn_speed, ms=cfg.pulse_ms("rotate_right", cfg.min_pulse_ms))
-    print(f"[INFO] in {READ_PAUSE_S:.0f} s come left pulses of rising length, note the shortest that "
-          f"clearly turns the robot")
+    for direction in SLOW_TURNS:
+        robot.drive(direction, speed=cfg.min_turn_speed, ms=cfg.pulse_ms(direction, cfg.min_pulse_ms))
+    print(f"[INFO] in {READ_PAUSE_S:.0f} s come left pulses of rising length. Note the shortest after which "
+          f"the chassis has clearly turned, since a buzz or a twitch does not count")
     time.sleep(READ_PAUSE_S)
     for ms in DEAD_LADDER_MS:
         print(f"[INFO] {ms} ms")
         robot.drive("rotate_left", speed=cfg.turn_speed, ms=ms)
         time.sleep(1.5)
     print("[INFO] on the laptop run: conda run -n ML python robocar/tools/turn_calc.py "
-          "--left-deg <angle> --end-deg <end> --dead-ms <shortest>")
+          "--left-deg <angle> --end <end> --dead-ms <shortest>")
 
 
 def detect_only(perception: CameraPerception) -> None:

@@ -21,9 +21,9 @@ def test_main_imports_and_every_mode_builds():
         main.reader.stop()
 
 
-def test_turn_check_sends_look_steps_both_ways_the_slowest_centring_turns_then_the_dead_time_ladder():
+def test_turn_check_sends_look_steps_both_ways_slow_turns_back_and_forth_then_the_dead_time_ladder():
     import robot_client
-    from calibration import DEAD_LADDER_MS, SLOW_TURN_PULSES, TURN_CHECK_PULSES
+    from calibration import DEAD_LADDER_MS, SLOW_TURNS, TURN_CHECK_PULSES
     from control import ControlConfig
 
     main = importlib.import_module("main")
@@ -40,5 +40,5 @@ def test_turn_check_sends_look_steps_both_ways_the_slowest_centring_turns_then_t
     drives = [args for name, args in app_utils.calls if name == "drive"]
     assert drives == ([("rotate_left", cfg.turn_speed, cfg.pulse_ms("rotate_left", cfg.look_step_ms))] * TURN_CHECK_PULSES
                       + [("rotate_right", cfg.turn_speed, cfg.pulse_ms("rotate_right", cfg.look_step_ms))] * TURN_CHECK_PULSES
-                      + [("rotate_right", cfg.min_turn_speed, cfg.pulse_ms("rotate_right", cfg.min_pulse_ms))] * SLOW_TURN_PULSES
+                      + [(d, cfg.min_turn_speed, cfg.pulse_ms(d, cfg.min_pulse_ms)) for d in SLOW_TURNS]
                       + [("rotate_left", cfg.turn_speed, ms) for ms in DEAD_LADDER_MS])

@@ -5,9 +5,12 @@ from dataclasses import dataclass
 from control import ControlConfig
 
 TURN_CHECK_PULSES = 10
-SLOW_TURN_PULSES = 3
+# Each slow turn reverses the last, as centring does after an overshoot, so gear backlash and
+# break-away friction are part of what they show.
+SLOW_TURNS = ("rotate_right", "rotate_left", "rotate_right")
 # The shortest of these that visibly turns the robot is the pulse_dead_ms estimate. Reading one
-# step long is safe, since sending up to twice the true dead time cost nothing in simulation.
+# step long is safe, since center_band below widens to cover the surplus, and in a simulation of
+# the whole procedure readings up to twice the true dead time lost no goals.
 DEAD_LADDER_MS = (20, 40, 60, 80, 100, 130, 160, 200)
 # Real turns about a third faster than assumed, inside the 0.9 to 1.5 times the assumed rate
 # that scored alike in simulation, and a quarter slower still inside it.
@@ -22,14 +25,11 @@ class TurnCalibration:
     # Centring settles only if its slowest turn fits inside the centre band. Otherwise it rocks
     # across the ball, as in simulation at twice the assumed rate. The slowest turn is reckoned
     # as min_pulse_ms plus all of pulse_dead_ms at min_turn_speed, because the ladder can read
-    # the dead time long and the surplus then turns the robot.
+    # the dead time long and the surplus then turns the robot. Widening the band to fit it
+    # scored as well in simulation as slowing the turn, without the risk of a stall, so
+    # center_band never narrows here and widens when the slowest turn needs it.
     slowest_turn_rad: float
-    centre_band_rad: float
-    settling_min_turn_speed: int
-
-    @property
-    def centring_settles(self) -> bool:
-        return self.slowest_turn_rad < self.centre_band_rad
+    center_band: float
 
 
 def calibrate(cfg: ControlConfig, left_deg: float, end_deg: float, dead_ms: int) -> TurnCalibration:
@@ -49,12 +49,14 @@ def calibrate(cfg: ControlConfig, left_deg: float, end_deg: float, dead_ms: int)
                              "which cannot be a measurement")
         rates[direction] = math.radians(degrees) / (TURN_CHECK_PULSES * cfg.turn_speed * moving_ms)
     real_rate = rates["rotate_left"]
-    band = 2 * math.atan(2 * cfg.center_band * math.tan(math.radians(cfg.hfov_deg) / 2))
+    half_fov_tan = math.tan(math.radians(cfg.hfov_deg) / 2)
+    slowest = (cfg.min_pulse_ms + dead_ms) * cfg.min_turn_speed * real_rate
     return TurnCalibration(
         turn_rad_per_speed_ms=real_rate * SAFETY_FACTOR,
         right_turn_scale=real_rate / rates["rotate_right"],
         pulse_dead_ms=dead_ms,
-        slowest_turn_rad=(cfg.min_pulse_ms + dead_ms) * cfg.min_turn_speed * real_rate,
-        centre_band_rad=band,
-        settling_min_turn_speed=int(band / ((cfg.min_pulse_ms + dead_ms) * real_rate)),
+        slowest_turn_rad=slowest,
+        # A tenth wider than the slowest turn, since the turn rate itself varies between pulses,
+        # and rounded up to a value that reads well in ControlConfig.
+        center_band=max(cfg.center_band, math.ceil(110 * math.tan(slowest / 2) / (2 * half_fov_tan)) / 100),
     )
