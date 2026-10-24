@@ -99,9 +99,11 @@ class ControlConfig:
     approach_ms_per_unit: float = 900.0  # forward pulse length per unit of gap between ball.y and near_y
 
     # Measure both on the robot. turn_rad_per_speed_ms = radians turned by a rotate pulse
-    # (protractor) / (speed * ms) and assumes the angle is linear in both. Short pulses are
-    # expected to lose more to motor spin-up, so measure with pulses near look_step_ms, which
-    # moves with this value, and again after changing turn_speed, hfov_deg or look_step_frac.
+    # (protractor) / (speed * ms) and assumes the angle is linear in both. MODE = "turn_check"
+    # in main.py turns look steps for this, since short pulses are expected to lose more to
+    # motor spin-up. Set about 0.75 of the measured value. In simulation real turns 0.9 to 1.5
+    # times the assumed rate scored alike, while 0.8 times lost an eighth of the goals. Measure
+    # again after changing turn_speed, hfov_deg or look_step_frac, which move look_step_ms.
     # hfov_deg comes from a ruler at a known distance.
     hfov_deg: float = 70.0
     turn_rad_per_speed_ms: float = 1.2e-5

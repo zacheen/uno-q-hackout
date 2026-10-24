@@ -46,6 +46,7 @@ The camera's exposure and white balance cannot be changed through its driver, so
 The `MODE` constant at the top of `python/main.py` selects what runs.
 
 - `motion_check` performs the starter's single forward pulse.
+- `turn_check` turns left by ten search look steps and then makes three short slow right turns, for calibrating `turn_rad_per_speed_ms` and `min_turn_speed`.
 - `detect_only` prints every detection while the motors stay idle.
 - `play` runs the full routine and writes one CSV row per decision under the app's `data/runs/` folder.
 
@@ -64,9 +65,9 @@ Every controller threshold lives in `ControlConfig` in `python/control.py`. The 
 
 | Setting | How to measure it | Measured value |
 | --- | --- | --- |
-| `turn_rad_per_speed_ms` | Turn ten 420 ms pulses at speed 120, measure the total angle in radians, and divide by 10, by 120 and by 420. The pulse length matches one search look step, since short pulses are expected to lose a larger share of their angle to motor spin-up. The look step is computed from this value, so if the result moves it far from 420 ms, measure again at the new length. Calibrate this first, because the search and scan both depend on it, and again after changing `turn_speed`, `hfov_deg` or `look_step_frac` | to be measured |
+| `turn_rad_per_speed_ms` | Set `MODE = "turn_check"` in `python/main.py`, put the robot on the floor and press BOOT. It turns left by ten search look steps and prints the angle the controller expects, 350 degrees with the defaults. The pulses are search look steps because short pulses are expected to lose a larger share of their angle to motor spin-up. Judge the angle it really turned against a tape line, then set this to its current value times the real angle divided by the expected one, times 0.75. The 0.75 keeps the real turns faster than the controller assumes. In simulation real turns from 0.9 to 1.5 times the assumed rate scored 195 to 199 of 200 while 0.8 times scored 174, and a battery that slows the turns by a quarter during the day still leaves them inside that range. The result barely depends on the value set before, so repeat the check after changing `turn_speed`, `hfov_deg` or `look_step_frac`, which change the pulse length. Calibrate this first, because the search and scan both depend on it | to be measured |
 | `hfov_deg` | Read the angle between the left and right image edges with a ruler at a known distance | to be measured |
-| `min_turn_speed` | Send 80 ms `rotate_left` pulses, the `min_pulse_ms` length, starting at speed 60 and raising it until the robot turns every time. Centring slows toward this speed only while overshoots keep its turns shrunk | to be measured |
+| `min_turn_speed` | `turn_check` ends with three right turns at this speed, each as long as `min_pulse_ms`. If any of them leaves the robot still, raise this by 10 and run the check again. Centring slows toward this speed only while overshoots keep its turns shrunk | to be measured |
 | `near_y` | Place the ball where lining up should start, about 25 cm ahead, and read `ball.y` in `detect_only` | to be measured |
 | `align_band` | Place the ball in front of the goal at several spots and read how far apart the two centres are | to be measured |
 | `black_bit` in `python/hardware.py` | Start the app with the robot over tape and over the floor, and compare `line_digital` | to be measured |
@@ -84,7 +85,7 @@ python sim/robustness.py --episodes 150
 
 The unit tests cover the stream parser against the firmware's exact framing, the frozen and corrupt frame checks, the colour detector, the controller's decisions and its rejection of threshold combinations that would loop forever, every way the run loop can end, the line sensor guard, the frame capture tool, and an import of `main.py` against a stand-in for the board-only Arduino module.
 
-The simulator runs the same controller and run loop against a top-down model of the robot, ball, taped field and camera. Its physical constants are guesses, so it shows that the decision logic is sound, not how the real robot will score. On 300 random starts it scored 299 times with a median of 23.3 seconds. The robustness sweep changes one assumption at a time and found that an overestimated turn rate hurts most, which is why that value is calibrated first.
+The simulator runs the same controller and run loop against a top-down model of the robot, ball, taped field and camera. Its physical constants are guesses, so it shows that the decision logic is sound, not how the real robot will score. On 300 random starts it scored 299 times with a median of 23.3 seconds. The robustness sweep changes one assumption at a time and found that an overestimated turn rate hurts most, which is why that value is calibrated first and set below the measured one.
 
 ## Results
 

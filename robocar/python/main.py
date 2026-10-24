@@ -1,3 +1,4 @@
+import math
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -11,8 +12,10 @@ from perception import CameraPerception, Detector, EimDetector, HsvBallDetector
 from robot_client import MiniAutoRobot
 from runtime import EpisodeConfig, RunLog, run_episode
 
-# "motion_check" is the starter's single forward pulse, "detect_only" prints detections
-# with the motors idle, and "play" runs the full search, line-up and push routine.
+# "motion_check" is the starter's single forward pulse, "turn_check" turns search look
+# steps to check turn_rad_per_speed_ms and then a few slow ones to check min_turn_speed,
+# "detect_only" prints detections with the motors idle, and "play" runs the full search,
+# line-up and push routine.
 MODE = "motion_check"
 
 CAMERA_URL = "http://192.168.5.1:81/stream"
@@ -22,7 +25,9 @@ LOG_DIR = HERE.parent / "data" / "runs"
 
 # Tune these in runtime.EpisodeConfig, not here, so the simulator keeps testing the same limits.
 EPISODE = EpisodeConfig()
-MODES = ("motion_check", "detect_only", "play")
+MODES = ("motion_check", "turn_check", "detect_only", "play")
+TURN_CHECK_PULSES = 10
+SLOW_TURN_PULSES = 3
 DETECT_ONLY_S = 30.0
 LINE_GUARD_ENABLED = False  # enable only after confirming LineSensorGuard.black_bit on the field
 # Used only when no .eim model loads; the default range is a guess for an orange ball.
@@ -48,6 +53,22 @@ def make_detector() -> Detector:
 def motion_check() -> None:
     # Start with raised wheels; calibrate this short pulse on each chassis.
     robot.drive("forward", speed=100, ms=200)
+
+
+def turn_check() -> None:
+    # Run with the wheels on the floor. The pulses are the search's own look steps, so the
+    # motor spin-up lost between looks is part of what gets measured.
+    cfg = ControlConfig()
+    expected = TURN_CHECK_PULSES * cfg.turn_speed * cfg.look_step_ms * cfg.turn_rad_per_speed_ms
+    print(f"[INFO] turning left {TURN_CHECK_PULSES} x {cfg.look_step_ms} ms at speed {cfg.turn_speed}, "
+          f"the controller expects {math.degrees(expected):.0f} degrees in total")
+    for _ in range(TURN_CHECK_PULSES):
+        robot.drive("rotate_left", speed=cfg.turn_speed, ms=cfg.look_step_ms)
+    print(f"[INFO] read the angle now. In 3 s come {SLOW_TURN_PULSES} right turns of {cfg.min_pulse_ms} ms "
+          f"at min_turn_speed {cfg.min_turn_speed}, and each one must visibly move the robot")
+    time.sleep(3.0)
+    for _ in range(SLOW_TURN_PULSES):
+        robot.drive("rotate_right", speed=cfg.min_turn_speed, ms=cfg.min_pulse_ms)
 
 
 def detect_only(perception: CameraPerception) -> None:
@@ -87,6 +108,8 @@ def build_routine() -> tuple[Callable[[], None], Optional[CameraPerception]]:
         raise ValueError(f"unknown MODE {MODE!r}, expected one of {MODES}")
     if MODE == "motion_check":
         return motion_check, None
+    if MODE == "turn_check":
+        return turn_check, None
     camera_perception = CameraPerception(reader, make_detector())
     reader.start()
     if MODE == "detect_only":
@@ -103,7 +126,8 @@ try:
     print(f"health  : {robot.health()}")
     print(f"sensors : {robot.read_sensors()}")
     print(f"mode    : {MODE}")
-    print("Raise the wheels, then short-press the camera BOOT button to start.")
+    wheels = "Put the robot on the floor" if MODE == "turn_check" else "Raise the wheels"
+    print(f"{wheels}, then short-press the camera BOOT button to start.")
     routine, active_perception = build_routine()
     App.run(user_loop=lambda: robot.run_program(routine))
 finally:
