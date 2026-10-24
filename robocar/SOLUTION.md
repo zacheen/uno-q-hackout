@@ -112,7 +112,7 @@ Every controller threshold lives in `ControlConfig` in `python/control.py`, whos
 | `turn_speed` | If the look steps of `turn_check` barely turn the robot, raise this by 20. The sketch gives each wheel half the PWM for a turn that it gives for driving, so turns are the first move to stall | to be measured |
 | `hfov_deg` | Read the angle between the left and right image edges with a ruler at a known distance | to be measured |
 | `min_turn_speed` | `turn_check` makes three turns at this speed, right, left and right again so each one starts against the gear backlash of the last, and each as long as `min_pulse_ms`. If any of them leaves the robot still, raise this by 10 and run the check again. Do not lower it to make centring settle, since a stall costs more than a wider `center_band`. Centring slows toward this speed only while overshoots keep its turns shrunk | to be measured |
-| `near_y` | Place the ball where lining up should start, about 25 cm ahead, and read `ball.y` in `detect_only` | to be measured |
+| `near_y` | Place the ball where lining up should start, about 25 cm ahead, and read `ball.y` in `detect_only` | 0.60, since a ball 25 cm ahead read 0.625 every frame, and FOMO reports y only at cell centres such as 0.542, 0.625 and 0.708 |
 | `align_band` | Place the ball in front of the goal at several spots and read how far apart the two centres are | to be measured |
 | `black_bit` in `python/hardware.py` | Start the app with the robot over tape and over the floor, and compare `line_digital` | to be measured |
 | `MOTOR_POSITIVE_DIR` in `sketch/sketch.ino` | Use the motor calibration supplied with the robot, then check that every wheel turns both ways and that rotate pulses spin the robot on the spot | to be filled |

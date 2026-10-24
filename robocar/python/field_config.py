@@ -24,4 +24,6 @@ FIELD = ControlConfig(
     # Off only while the organisers fix the goal data. Turn it back on for scored runs, since in
     # simulation pushing straight without the goal scored 5 of 60.
     use_goal=False,
+    # A ball 25 cm ahead read y 0.625, a FOMO cell centre, so the default 0.60 starts lining up there.
+    near_y=0.60,
 )
