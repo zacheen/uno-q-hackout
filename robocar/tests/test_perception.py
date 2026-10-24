@@ -118,3 +118,6 @@ def test_the_nearest_ball_wins_over_a_far_one_with_a_higher_score():
     assert _nearest_ball([far, post, near]) == near
     assert _nearest_ball([Detection(BALL, 0.3, 0.54, 0.6), near]) == near
     assert _nearest_ball([post]) is None
+    # Above the horizon only furniture can show, however high its score.
+    assert _nearest_ball([far], min_y=1 / 3) is None
+    assert _nearest_ball([far, near], min_y=1 / 3) == near

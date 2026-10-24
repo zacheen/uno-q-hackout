@@ -111,9 +111,14 @@ class HsvBallDetector:
 class CameraPerception:
     """Turns the newest camera frame into an Observation holding the best ball and goal detections."""
 
-    def __init__(self, reader: LatestFrameReader, detector: Detector, skip_frames: int = 1) -> None:
+    # The far edge of the floor sits at y 0.42 in the event robot's camera, and a ball's centre lies
+    # below it at any distance. FOMO still reported balls above it, where only furniture shows, at y
+    # 0.125 to 0.292 with scores up to 1.0. 1/3 drops those cells and keeps 0.375, the horizon cell.
+    def __init__(self, reader: LatestFrameReader, detector: Detector, skip_frames: int = 1,
+                 min_ball_y: float = 1 / 3) -> None:
         self._reader = reader
         self._detector = detector
+        self._min_ball_y = min_ball_y
         # The camera double-buffers, so the first frame after a move may have been captured mid-move.
         self._skip_frames = skip_frames
         self._last_jpeg = b""
@@ -138,7 +143,7 @@ class CameraPerception:
         self._last_jpeg = frame.jpeg
         detections = self._detector.detect(bgr)
         return Observation(
-            ball=_nearest_ball(detections),
+            ball=_nearest_ball(detections, self._min_ball_y),
             goal=_goal_mouth(detections),
             frame_age_s=time.monotonic() - frame.received_at,
             seq=frame.seq,
@@ -155,13 +160,14 @@ def _canonical(label: str) -> str:
     return {"soccerball": BALL, "goal": GOAL}.get(key, label)
 
 
-def _nearest_ball(detections: Sequence[Detection]) -> Optional[Detection]:
+def _nearest_ball(detections: Sequence[Detection], min_y: float = 0.0) -> Optional[Detection]:
     """The ball lowest in the image, which is the nearest one, and the higher score among equals.
 
     Picking by score alone let a far detection near the top of the image win every other frame on
     the event robot, so centring turned toward a different ball at each step and never drove on.
     """
-    return max((d for d in detections if d.label == BALL), key=lambda d: (d.y, d.score), default=None)
+    balls = (d for d in detections if d.label == BALL and d.y >= min_y)
+    return max(balls, key=lambda d: (d.y, d.score), default=None)
 
 
 def _goal_mouth(detections: Sequence[Detection]) -> Optional[Detection]:
