@@ -10,7 +10,7 @@ Each decision follows the same cycle.
 
 1. A background thread reads the camera's MJPEG stream and keeps only the newest frame with the time it arrived.
 2. After every move the robot waits for a frame that arrived after the move finished, so no decision is based on a frame captured while the robot was moving.
-3. An Edge Impulse FOMO model finds the `soccerball` and the `goal` and reports their centres as fractions of the image. When no model loads, a colour threshold finds the ball.
+3. An Edge Impulse FOMO model finds the `soccerball` and the `goal` and reports their centres as fractions of the image. The event goal is two posts, each detected as `goal`, so the goal's centre is taken halfway between the outermost two, and a single post stands for the goal when only one is in view. When no model loads, a colour threshold finds the ball.
 4. The controller picks one short move, and the robot performs it as a timed pulse that the MCU stops on its own.
 
 The controller is a state machine.

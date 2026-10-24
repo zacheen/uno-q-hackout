@@ -139,7 +139,7 @@ class CameraPerception:
         detections = self._detector.detect(bgr)
         return Observation(
             ball=_best(detections, BALL),
-            goal=_best(detections, GOAL),
+            goal=_goal_mouth(detections),
             frame_age_s=time.monotonic() - frame.received_at,
             seq=frame.seq,
         )
@@ -157,3 +157,18 @@ def _canonical(label: str) -> str:
 
 def _best(detections: Sequence[Detection], label: str) -> Optional[Detection]:
     return max((d for d in detections if d.label == label), key=lambda d: d.score, default=None)
+
+
+def _goal_mouth(detections: Sequence[Detection]) -> Optional[Detection]:
+    """The point between the outermost goal posts, since the event goal is two posts each labelled goal.
+
+    One post alone, or two posts far enough away that FOMO merges them into one cell, is returned
+    as it is, because the side the mouth lies on cannot be told from a single post.
+    """
+    posts = [d for d in detections if d.label == GOAL]
+    if not posts:
+        return None
+    left = min(posts, key=lambda d: d.x)
+    right = max(posts, key=lambda d: d.x)
+    return Detection(label=GOAL, x=(left.x + right.x) / 2, y=(left.y + right.y) / 2,
+                     score=min(left.score, right.score))

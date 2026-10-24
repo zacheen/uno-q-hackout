@@ -2,8 +2,8 @@ import cv2
 import numpy as np
 
 from camera import Frame
-from control import BALL, GOAL
-from perception import CameraPerception, HsvBallDetector, _canonical
+from control import BALL, GOAL, Detection
+from perception import CameraPerception, HsvBallDetector, _canonical, _goal_mouth
 
 ORANGE_BGR = (0, 128, 255)
 
@@ -97,3 +97,15 @@ def test_model_labels_map_to_ball_and_goal_however_they_are_spelt():
         assert _canonical(label) == BALL
     assert _canonical("goal") == GOAL and _canonical("Goal") == GOAL
     assert _canonical("robot") == "robot"
+
+
+def test_the_goal_is_the_point_between_the_two_posts():
+    def post(x, y, score):
+        return Detection(GOAL, x, y, score)
+
+    ball = Detection(BALL, 0.5, 0.7, 0.9)
+    mouth = _goal_mouth([post(0.3, 0.30, 0.9), ball, post(0.7, 0.34, 0.6)])
+    assert abs(mouth.x - 0.5) < 1e-9 and abs(mouth.y - 0.32) < 1e-9 and mouth.score == 0.6
+    # A single post, or two merged into one cell, is all the robot can go by.
+    assert _goal_mouth([post(0.2, 0.3, 0.8), ball]) == post(0.2, 0.3, 0.8)
+    assert _goal_mouth([ball]) is None
