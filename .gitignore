@@ -13,3 +13,6 @@ notes/
 refer/
 
 CLAUDE.md
+
+# added by guard_local_only_files.py
+Known_concern.md
