@@ -1,13 +1,13 @@
 import math
 
-from calibration import SAFETY_FACTOR, TURN_CHECK_PULSES, calibrate
+from calibration import SAFETY_FACTOR, TURN_CHECK_DEG, TURN_CHECK_PULSES, calibrate, check_pulse_ms
 from control import ControlConfig
 
 
 def _readings(cfg: ControlConfig, left_rate: float, right_rate: float, dead_ms: int) -> tuple:
     """What turn_check shows on a robot with these true rates and dead time, run with cfg."""
     def degrees(direction: str, rate: float) -> float:
-        moving_ms = cfg.pulse_ms(direction, cfg.look_step_ms) - dead_ms
+        moving_ms = cfg.pulse_ms(direction, check_pulse_ms(cfg)) - dead_ms
         return math.degrees(TURN_CHECK_PULSES * cfg.turn_speed * moving_ms * rate)
     left = degrees("rotate_left", left_rate)
     return left, left - degrees("rotate_right", right_rate)
@@ -51,9 +51,17 @@ def test_calibrate_widens_the_centre_band_until_the_slowest_centring_turn_fits_b
     assert calibrate(cfg, *_readings(cfg, 3e-5, 3e-5, 40), 40).center_band > fast.center_band
 
 
+def test_a_check_with_the_settings_already_right_turns_one_full_circle():
+    rate, dead = 1.1e-5, 60
+    cfg = ControlConfig(turn_rad_per_speed_ms=rate * SAFETY_FACTOR, pulse_dead_ms=dead)
+    left_deg, end_deg = _readings(cfg, rate, rate, dead)
+    # Whole milliseconds are the only error left.
+    assert abs(left_deg - TURN_CHECK_DEG) < 2 and abs(end_deg) < 0.01
+
+
 def test_calibrate_rejects_readings_that_cannot_come_from_the_check():
     cfg = ControlConfig()
-    for left_deg, end_deg, dead in ((0, 0, 0), (300, 300, 0), (300, 0, cfg.look_step_ms)):
+    for left_deg, end_deg, dead in ((0, 0, 0), (300, 300, 0), (300, 0, cfg.pulse_ms("rotate_left", check_pulse_ms(cfg)))):
         try:
             calibrate(cfg, left_deg, end_deg, dead)
         except ValueError:

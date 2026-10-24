@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from control import ControlConfig
 
 TURN_CHECK_PULSES = 10
+# The check pulses aim at one full turn when the current settings are right, so the operator reads
+# how far the robot ends from its start rather than an arbitrary angle.
+TURN_CHECK_DEG = 360.0
 # Each slow turn reverses the last, as centring does after an overshoot, so gear backlash and
 # break-away friction are part of what they show.
 SLOW_TURNS = ("rotate_right", "rotate_left", "rotate_right")
@@ -15,6 +18,12 @@ DEAD_LADDER_MS = (20, 40, 60, 80, 100, 130, 160, 200)
 # Real turns about a third faster than assumed, inside the 0.9 to 1.5 times the assumed rate
 # that scored alike in simulation, and a quarter slower still inside it.
 SAFETY_FACTOR = 0.75
+
+
+def check_pulse_ms(cfg: ControlConfig) -> int:
+    """Length of each check pulse as the controller sizes it, before ControlConfig.pulse_ms."""
+    real_rate = cfg.turn_rad_per_speed_ms / SAFETY_FACTOR
+    return round(math.radians(TURN_CHECK_DEG / TURN_CHECK_PULSES) / (cfg.turn_speed * real_rate))
 
 
 @dataclass(frozen=True)
@@ -35,15 +44,15 @@ class TurnCalibration:
 def calibrate(cfg: ControlConfig, left_deg: float, end_deg: float, dead_ms: int) -> TurnCalibration:
     """New turn settings from one turn_check run made with cfg.
 
-    left_deg is how far the left look steps turned. end_deg is where the right look steps left
-    the robot, measured from its starting direction and positive to the left. dead_ms is the
+    left_deg is how far the left check pulses turned. end_deg is where the right ones left the
+    robot, measured from its starting direction and positive to the left. dead_ms is the
     shortest ladder pulse that visibly turned it.
     """
     right_deg = left_deg - end_deg
     turned = {"rotate_left": left_deg, "rotate_right": right_deg}
     rates = {}
     for direction, degrees in turned.items():
-        moving_ms = cfg.pulse_ms(direction, cfg.look_step_ms) - dead_ms
+        moving_ms = cfg.pulse_ms(direction, check_pulse_ms(cfg)) - dead_ms
         if degrees <= 0 or moving_ms <= 0:
             raise ValueError(f"{direction} turned {degrees:.0f} degrees in {moving_ms} ms of motion, "
                              "which cannot be a measurement")

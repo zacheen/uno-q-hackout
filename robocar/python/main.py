@@ -1,11 +1,10 @@
-import math
 import time
 from pathlib import Path
 from typing import Callable, Optional
 
 from arduino.app_utils import App
 
-from calibration import DEAD_LADDER_MS, SLOW_TURNS, TURN_CHECK_PULSES
+from calibration import DEAD_LADDER_MS, SLOW_TURNS, TURN_CHECK_DEG, TURN_CHECK_PULSES, check_pulse_ms
 from camera import LatestFrameReader
 from control import BallGoalController
 from field_config import FIELD
@@ -57,18 +56,18 @@ def motion_check() -> None:
 
 
 def turn_check() -> None:
-    # Run with the wheels on the floor. The pulses are the search's own look steps sent the way
-    # the controller sends them, so tools/turn_calc.py can undo whatever settings were in force.
+    # Run with the wheels on the floor. The pulses are sent the way the controller sends them, so
+    # tools/turn_calc.py can undo whatever settings were in force.
     cfg = FIELD
-    expected = TURN_CHECK_PULSES * cfg.turn_speed * cfg.look_step_ms * cfg.turn_rad_per_speed_ms
-    print(f"[INFO] {TURN_CHECK_PULSES} left look steps at speed {cfg.turn_speed}, the controller expects "
-          f"{math.degrees(expected):.0f} degrees in total")
+    ms = check_pulse_ms(cfg)
+    print(f"[INFO] {TURN_CHECK_PULSES} left turns of {ms} ms at speed {cfg.turn_speed}, which make exactly "
+          f"{TURN_CHECK_DEG:.0f} degrees if the turn settings are right")
     for _ in range(TURN_CHECK_PULSES):
-        robot.drive("rotate_left", speed=cfg.turn_speed, ms=cfg.pulse_ms("rotate_left", cfg.look_step_ms))
-    print(f"[INFO] read the angle turned left. In {READ_PAUSE_S:.0f} s come {TURN_CHECK_PULSES} right look steps")
+        robot.drive("rotate_left", speed=cfg.turn_speed, ms=cfg.pulse_ms("rotate_left", ms))
+    print(f"[INFO] read the angle turned left. In {READ_PAUSE_S:.0f} s come {TURN_CHECK_PULSES} right turns")
     time.sleep(READ_PAUSE_S)
     for _ in range(TURN_CHECK_PULSES):
-        robot.drive("rotate_right", speed=cfg.turn_speed, ms=cfg.pulse_ms("rotate_right", cfg.look_step_ms))
+        robot.drive("rotate_right", speed=cfg.turn_speed, ms=cfg.pulse_ms("rotate_right", ms))
     print(f"[INFO] read where the robot ended against its starting direction, such as 20L, 15R or 0. "
           f"In {READ_PAUSE_S:.0f} s come {len(SLOW_TURNS)} turns back and forth at min_turn_speed "
           f"{cfg.min_turn_speed}, and each one must visibly move the robot")
