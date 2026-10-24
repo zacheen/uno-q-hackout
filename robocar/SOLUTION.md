@@ -2,7 +2,7 @@
 
 This robot finds a ball with its camera, lines the ball up with the goal, pushes it across the goal line, and goes back for the ball when a shot misses. Everything runs on the Arduino UNO Q. The Linux side decodes camera frames, runs the detector and makes every decision, and the MCU side drives the motors with timed stops.
 
-The measured calibration and results sections are filled in on the event day.
+Every entry marked "to be measured", "to be filled" or "to be confirmed" is recorded on the event day.
 
 ## How it works
 
@@ -37,27 +37,63 @@ Centring turns are sized from the calibrated turn rate. When one overshoots so f
 - A restart always needs a press of the camera BOOT button.
 - When the line sensor sees the taped boundary, the robot backs off before anything else happens. This guard stays off until the tape polarity has been checked on the field and `LINE_GUARD_ENABLED` in `python/main.py` is switched on. If the sensor still reads tape after the allowed number of back-offs in a row, the run ends, because a wrong polarity setting or a robot that crossed the edge sideways would otherwise keep it reversing.
 
-## Training data
+## Hardware
+
+- An Arduino UNO Q on a Hiwonder miniAuto mecanum chassis, with the organisers' sketch driving the four motors.
+- The ESP32-S3 camera supplied with the robot. It serves 320×240 MJPEG frames over its own Wi-Fi access point and reports its BOOT button to the MCU over I2C.
+- The four-channel line sensor on the chassis, used only for the taped boundary.
+- The ball and goal from the challenge. Their colour, size and placement are to be filled.
+
+## Source layout
+
+| Path | What it holds |
+| --- | --- |
+| `python/main.py` | Mode selection, the BOOT-started run lifecycle and the calibration routines |
+| `python/camera.py` | The background stream reader that keeps only the newest frame and its arrival time |
+| `python/perception.py` | The `.eim` detector, the colour fallback, and the frozen and corrupt frame checks |
+| `python/control.py` | The state machine and every tunable threshold in `ControlConfig` |
+| `python/runtime.py` | The run loop shared by the robot and the simulator, with every way a run can end |
+| `python/hardware.py` | The motor executor and the line sensor guard |
+| `python/robot_client.py`, `sketch/` | The organisers' robot driver and MCU firmware, unchanged |
+| `sim/` | The top-down simulator and the robustness sweep |
+| `tests/` | Unit tests that run on an ordinary computer |
+| `tools/` | Frame capture for training images and plotting of run logs |
+
+## Model and dataset
+
+The detector is an Edge Impulse FOMO model with two classes, `soccerball` and `goal`, trained with the impulse settings in the Edge Impulse section of the organisers' robocar guide.
+
+| Item | Value |
+| --- | --- |
+| Edge Impulse project | to be filled |
+| Model file in `python/` | to be filled |
+| Training images | to be filled, split into images from the organisers and frames from the robot camera |
+| Test images | to be filled |
+| Training cycles and learning rate | to be filled |
+| Test accuracy | to be filled |
 
 The camera's exposure and white balance cannot be changed through its driver, so robustness to the venue lighting has to come from the training images. `tools/capture_frames.py` saves frames straight from the robot camera while a laptop is on the camera's Wi-Fi, which keeps training images on the same sensor and JPEG path the robot sees while driving.
 
 ## Running it
 
-The `MODE` constant at the top of `python/main.py` selects what runs.
+1. Install the Python packages the detector needs while the UNO Q still has Internet access, because the camera network has none. They are listed in `python/requirements.txt`, which is to be filled. Then join the camera's Wi-Fi from UNO Q Linux and keep USB connected for deploying.
+2. Put the exported `.eim` model in `python/`. Without one the app falls back to a colour threshold, which finds the ball but never the goal.
+3. Deploy from a terminal in this folder.
 
-- `motion_check` performs the starter's single forward pulse.
-- `turn_check` turns left by ten search look steps and then makes three short slow right turns, for calibrating `turn_rad_per_speed_ms` and `min_turn_speed`.
-- `detect_only` prints every detection while the motors stay idle.
-- `play` runs the full routine and writes one CSV row per decision under the app's `data/runs/` folder.
+   ```sh
+   make flash
+   make logs
+   ```
 
-Deploy from a terminal in this folder.
+   On Windows run these in Git Bash. The `GNUmakefile` here stops Git Bash from rewriting the `/tmp` and `TMPDIR` arguments that the Makefile passes to adb.
+4. The `MODE` constant at the top of `python/main.py` selects what runs, and every change needs another deploy. Calibrate in this order.
+   - `motion_check` performs the starter's single forward pulse.
+   - `turn_check` turns left by ten search look steps and then makes three short slow right turns, for calibrating `turn_rad_per_speed_ms` and `min_turn_speed`.
+   - `detect_only` prints every detection while the motors stay idle.
+   - `play` runs the full routine and writes one CSV row per decision under the app's `data/runs/` folder.
+5. For a scored attempt set `MODE = "play"`, place the robot at the start position and short-press the camera BOOT button. After the red, yellow and green countdown the robot makes one attempt and stops, and the next attempt needs another press.
 
-```sh
-make flash
-make logs
-```
-
-On Windows run these in Git Bash. The `GNUmakefile` here stops Git Bash from rewriting the `/tmp` and `TMPDIR` arguments that the Makefile passes to adb. `make pull-logs` copies the run logs back for plotting with `tools/plot_run.py`.
+`make pull-logs` copies the run logs back for plotting with `tools/plot_run.py`.
 
 ## Calibration
 
@@ -71,7 +107,12 @@ Every controller threshold lives in `ControlConfig` in `python/control.py`. The 
 | `near_y` | Place the ball where lining up should start, about 25 cm ahead, and read `ball.y` in `detect_only` | to be measured |
 | `align_band` | Place the ball in front of the goal at several spots and read how far apart the two centres are | to be measured |
 | `black_bit` in `python/hardware.py` | Start the app with the robot over tape and over the floor, and compare `line_digital` | to be measured |
+| `MOTOR_POSITIVE_DIR` in `sketch/sketch.ino` | Use the motor calibration supplied with the robot, then check that every wheel turns both ways and that rotate pulses spin the robot on the spot | to be filled |
+| `confirm_hits` | Keep 1 unless `detect_only` reports a ball where there is none, then set 2 | to be measured |
+| `HSV_LOWER` and `HSV_UPPER` in `python/main.py` | Only needed without a model. Adjust until `detect_only` reports the ball in every position and nothing once it is removed | to be measured |
 | `search_when_lost` | Ask the judges whether the robot may search for the ball after losing it, or must stop | to be confirmed |
+
+The floor surface, the lighting and the battery voltage reported as `battery_mv` in the startup sensors line, all taken when these values were measured, are to be filled. Turning and detection both depend on them.
 
 ## Testing without the robot
 
@@ -89,11 +130,18 @@ The simulator runs the same controller and run loop against a top-down model of 
 
 ## Results
 
-To be filled in on the event day with the number of attempts, goals, and the time of each goal on the real field.
+Recorded on the event field. Each time runs from the BOOT press to the ball crossing the goal line.
+
+| Attempt | Robot start | Ball position | Outcome | Time (s) | Notes |
+| --- | --- | --- | --- | --- | --- |
+| 1 | to be filled | to be filled | to be filled | to be filled | |
+
+Goals out of attempts and the median time to a goal are to be filled.
 
 ## Credits
 
 - The starter app, robot driver, firmware and Makefile come from the organisers' uno-q-hackout repository.
 - The Edge Impulse Linux Python SDK runs the `.eim` model.
+- The sources of the training images and labels are to be filled. They are the organisers' Edge Impulse project, our own robot camera captures, or both.
 - The orbit-to-align idea follows the shooting behaviour in the NAIST RoboCup-99 team description, and the reasoning about turns and slides follows the visual servoing tutorial by Chaumette and Hutchinson.
 - Backing off after a lost ball and the line-sensor priority were informed by the 2024 RoboCup Junior Open soccer code published by chamburr.
