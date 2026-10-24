@@ -305,7 +305,17 @@ The button is a software input, not a hard power cutoff. Blocking firmware routi
 
 ## Edge Impulse: train a detector
 
-Use this section to build and export the `.eim` model used in the below step 5. You can clone [our project with prelabelled capture data](https://studio.edgeimpulse.com/public/1144501/live) or start from scratch with your own captures.
+Use this section to build and export the `.eim` model used in step 5. You can clone [our project with prelabelled capture data](https://studio.edgeimpulse.com/public/1144501/live) or start from scratch with your own captures.
+
+Before joining the camera network (no internet on ESP32 connection), add the Edge Impulse Linux runner to `python/requirements.txt` while the UNO Q still has Internet access:
+
+```
+edge-impulse-linux
+```
+
+App Lab installs it on first run. The package provides `ImageImpulseRunner`, which loads and invokes the `.eim` file.
+
+ You can also sign into your Edge Impulse account on Arduino App Lab by navigating to the **Add Brick** icon on the top left, scroll down to **Video Object Detection**, and select **AI Models** and scroll one more time down to **Train new AI Model on Edge Impulse**. This will prompt a sign in screen, and once connected your project/model will be available for selection.
 
 ### 1. Collect data
 
@@ -358,5 +368,4 @@ python/
   your-model-linux-aarch64.eim
 ```
 
-The `.eim` file is generated from your own project and is not included by default. 
-
+The `.eim` file is generated from your own project and is not included by default. You can also use the Arduino App Lab **Video Object Detection** brick mentioned before step 1.
