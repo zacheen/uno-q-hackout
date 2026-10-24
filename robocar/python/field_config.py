@@ -23,6 +23,8 @@ FIELD = ControlConfig(
     search_back_pulses=2,
     # Back on with the model trained on the organisers' fixed data, where the goal is two posts.
     use_goal=True,
+    # Off for now so a near ball is pushed straight at once when no goal shows, without scanning.
+    scan_for_goal=False,
     # A ball 25 cm ahead read y 0.625, a FOMO cell centre, so the default 0.60 starts lining up there.
     near_y=0.60,
 )

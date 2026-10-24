@@ -182,6 +182,15 @@ def test_without_the_goal_a_near_ball_is_pushed_straight_whatever_the_detector_s
         assert c.phase is Phase.PUSH and action.direction == "forward"
 
 
+def test_without_the_scan_a_near_ball_is_pushed_straight_unless_a_goal_shows():
+    c = _controller(scan_for_goal=False, sidestep_pulses=3)
+    action = _confirmed(c, _obs(ball=(0.5, 0.7)))
+    assert c.phase is Phase.PUSH and action.direction == "forward"
+    c = _controller(scan_for_goal=False)
+    _confirmed(c, _obs(ball=(0.5, 0.7), goal=(0.8, 0.3)))
+    assert c.phase is Phase.LINEUP and c.reason == "orbit to line up"
+
+
 def test_steps_aside_before_scanning_and_lines_up_once_the_goal_shows():
     c = _controller(sidestep_pulses=2)
     assert _confirmed(c, _obs(ball=(0.5, 0.7))) == Move("left", c.cfg.strafe_speed, c.cfg.strafe_ms)

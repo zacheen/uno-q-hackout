@@ -146,6 +146,9 @@ class ControlConfig:
     # False ignores every goal detection and pushes straight once the ball is near, for runs where
     # the detector cannot be trusted to find the goal.
     use_goal: bool = True
+    # False pushes straight when lineup has no goal in view or memory, skipping the sidesteps and
+    # the scan, while a goal that is seen is still lined up with.
+    scan_for_goal: bool = True
     search_back_pulses: int = 2      # back off after each fruitless lap to uncover a ball at the bumper
     max_search_laps: int = 3
     # Search and scan turn this fraction of hfov between looks. Half leaves enough overlap
@@ -485,6 +488,9 @@ class BallGoalController:
                     return self._push(ball, goal)
                 if not self.cfg.use_goal:
                     self._enter(Phase.PUSH, "goal not used, pushing straight")
+                    return self._push(ball, goal)
+                if not self.cfg.scan_for_goal:
+                    self._enter(Phase.PUSH, "goal not in view, pushing straight")
                     return self._push(ball, goal)
                 if self._sidesteps < self.cfg.sidestep_pulses:
                     self._sidesteps += 1
