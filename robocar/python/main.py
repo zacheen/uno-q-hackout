@@ -17,7 +17,7 @@ from runtime import EpisodeConfig, RunLog, run_episode
 # tools/turn_calc.py turns into the turn settings and checks min_turn_speed, "detect_only"
 # prints detections with the motors idle, and "play" runs the full search, line-up and
 # push routine.
-MODE = "turn_check"
+MODE = "play"
 
 CAMERA_URL = "http://192.168.5.1:81/stream"
 HERE = Path(__file__).resolve().parent
