@@ -20,7 +20,9 @@ class Detector(Protocol):
 class EimDetector:
     """Runs an Edge Impulse .eim object-detection model through the edge_impulse_linux SDK."""
 
-    def __init__(self, model_path: str, min_score: float = 0.5, timeout_s: float = 1.0,
+    # 0.5 dropped most balls beyond about 1 m on the event robot, which FOMO scored around 0.5,
+    # while near balls scored above 0.75. The validation set showed no background taken for a ball.
+    def __init__(self, model_path: str, min_score: float = 0.3, timeout_s: float = 1.0,
                  required_labels: Sequence[str] = (BALL,)) -> None:
         # Imported here so the OpenCV fallback still works when the SDK fails to install.
         from edge_impulse_linux.image import ImageImpulseRunner
