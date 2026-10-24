@@ -83,8 +83,9 @@ class ControlConfig:
     search_when_lost: bool = True
 
     turn_speed: int = 120
-    # Slowest rotate speed that still turns the robot.
-    # Check on the field that the robot really turns at this speed.
+    # Slowest rotate speed at which a min_pulse_ms pulse still turns the robot. A centring
+    # turn that needs a shorter pulse slows toward it, but only while overshoots have kept
+    # the centring turns shrunk. Check on the field that the robot really turns at this speed.
     min_turn_speed: int = 60
     drive_speed: int = 130           # also the speed of backward pulses in search and recover
     strafe_speed: int = 140
@@ -101,9 +102,10 @@ class ControlConfig:
     # Measure both on the robot. turn_rad_per_speed_ms = radians turned by a rotate pulse
     # (protractor) / (speed * ms) and assumes the angle is linear in both. MODE = "turn_check"
     # in main.py turns look steps for this, since short pulses are expected to lose more to
-    # motor spin-up. Set about 0.75 of the measured value. In simulation real turns 0.9 to 1.5
-    # times the assumed rate scored alike, while 0.8 times lost an eighth of the goals. Measure
-    # again after changing turn_speed, hfov_deg or look_step_frac, which move look_step_ms.
+    # motor spin-up. Set about 0.75 of the measured value, which keeps real turns faster than
+    # assumed. In simulation real turns 0.9 to 1.5 times the assumed rate scored alike, while
+    # 0.8 times lost an eighth of the goals. Measure again after changing turn_speed, hfov_deg
+    # or look_step_frac, which move look_step_ms.
     # hfov_deg comes from a ruler at a known distance.
     hfov_deg: float = 70.0
     turn_rad_per_speed_ms: float = 1.2e-5
@@ -526,8 +528,8 @@ class BallGoalController:
         ms = abs(error) * self.cfg.turn_ms_per_unit * self._centring.gain
         speed = self.cfg.turn_speed
         if ms < self.cfg.min_pulse_ms and self._centring.shrunk:
-            # The pulse cannot get shorter, so turn slower. Never at the calibrated gain, where
-            # the shortest pulse already lands inside the centre band.
+            # The pulse cannot get shorter, so turn slower, down to min_turn_speed. Never at the
+            # calibrated gain, where the shortest pulse already lands inside the centre band.
             speed = max(self.cfg.min_turn_speed, int(speed * ms / self.cfg.min_pulse_ms))
         self._centring.turned(error)
         return Move("rotate_right" if error > 0 else "rotate_left", speed,

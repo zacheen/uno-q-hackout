@@ -176,7 +176,8 @@ def test_a_second_scan_chooses_its_return_turn_afresh():
     assert c.phase is Phase.SCAN
     for _ in range(5):
         c.step(_obs())
-    # Six look steps left put the remembered ball about 150 degrees to the left, so left is the short way.
+    # Six look steps left since the ball was last seen, one of them when this scan began, put
+    # the remembered ball about 150 degrees to the left, so left is the short way.
     assert c.step(_obs(goal=(0.5, 0.3))).direction == "rotate_left"
 
 
