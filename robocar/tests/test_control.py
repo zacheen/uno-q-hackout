@@ -175,6 +175,13 @@ def test_scans_for_the_goal_when_its_direction_is_unknown():
     assert action.ms == ControlConfig().look_step_ms
 
 
+def test_without_the_goal_a_near_ball_is_pushed_straight_whatever_the_detector_says():
+    for goal in (None, (0.8, 0.3)):
+        c = _controller(use_goal=False, sidestep_pulses=3)
+        action = _confirmed(c, _obs(ball=(0.5, 0.7), goal=goal))
+        assert c.phase is Phase.PUSH and action.direction == "forward"
+
+
 def test_steps_aside_before_scanning_and_lines_up_once_the_goal_shows():
     c = _controller(sidestep_pulses=2)
     assert _confirmed(c, _obs(ball=(0.5, 0.7))) == Move("left", c.cfg.strafe_speed, c.cfg.strafe_ms)

@@ -143,6 +143,9 @@ class ControlConfig:
     # 2 to 12 s faster and random starts scored the same. It stays off because how far a real
     # strafe pulse goes is unknown until it is measured on the field.
     sidestep_pulses: int = 0
+    # False ignores every goal detection and pushes straight once the ball is near, for runs where
+    # the detector cannot be trusted to find the goal.
+    use_goal: bool = True
     search_back_pulses: int = 2      # back off after each fruitless lap to uncover a ball at the bumper
     max_search_laps: int = 3
     # Search and scan turn this fraction of hfov between looks. Half leaves enough overlap
@@ -389,10 +392,11 @@ class BallGoalController:
             self._misses = 0
             self._last_ball_x = ball.x
             self._memory.see_ball(ball.x)
-        if obs.goal is not None:
-            self._memory.see_goal(obs.goal.x)
+        goal = obs.goal if self.cfg.use_goal else None
+        if goal is not None:
+            self._memory.see_goal(goal.x)
             self._goal_scan_failed = False
-        action = self._handlers[self.phase](ball, obs.goal)
+        action = self._handlers[self.phase](ball, goal)
         if isinstance(action, Halt):
             # Halt branches never set reason themselves, and the run log reads it after step().
             self.reason = action.reason
@@ -478,6 +482,9 @@ class BallGoalController:
             if relative is None:
                 if self._goal_scan_failed:
                     self._enter(Phase.PUSH, "goal never found, pushing straight")
+                    return self._push(ball, goal)
+                if not self.cfg.use_goal:
+                    self._enter(Phase.PUSH, "goal not used, pushing straight")
                     return self._push(ball, goal)
                 if self._sidesteps < self.cfg.sidestep_pulses:
                     self._sidesteps += 1
