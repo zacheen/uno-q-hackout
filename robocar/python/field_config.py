@@ -10,14 +10,15 @@ from control import ControlConfig
 # settings aimed at one full turn and fell 30 degrees short, and its ladder again turned 45. A
 # third run with 7.19e-6 landed within 20 degrees of a full turn, so turning is calibrated.
 # The event field has no obstacles and no boundary, and the start may or may not put robot, ball
-# and goal in one line. A lost ball gets one search lap with no back-off, then the run stops. In
-# simulation that scored 281 of 300 against 299 with the default three laps and back-offs.
+# and goal in one line. A lost ball gets one search lap, a back-off to uncover a ball under the
+# camera and a second lap, then the run stops. In simulation that scored 297 of 300, against 281
+# with a single lap and no back-off.
 FIELD = ControlConfig(
     turn_rad_per_speed_ms=7.19e-6,
     pulse_dead_ms=60,
     right_turn_scale=1.0,
     center_band=0.08,
     sidestep_pulses=3,
-    max_search_laps=1,
-    search_back_pulses=0,
+    max_search_laps=2,
+    search_back_pulses=2,
 )
