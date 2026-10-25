@@ -73,7 +73,7 @@ The detector is an Edge Impulse FOMO model with two classes, `soccerball` and `g
 | Item | Value |
 | --- | --- |
 | Edge Impulse project | A clone of the organisers' public project 1144501 made after they relabelled the goal as two posts, with the resize mode set to Squash. An earlier clone, from before the relabelling, had its 125 goal samples enabled by hand |
-| Model file in `python/` | `uno-q-hackout-new-linux-aarch64-v1.eim`, built for Arduino UNO Q with the EON Compiler and int8 quantisation, and kept out of git by `.gitignore` because of its 13.6 MB |
+| Model file in `python/` | `uno-q-hackout-new-linux-aarch64-v1.eim`, built for Arduino UNO Q with the EON Compiler and int8 quantisation, and committed despite its 13.6 MB so a fresh clone deploys the model the robot ran at the event |
 | Training images | Not recorded for the relabelled data. The earlier clone had 255, taken with the robot camera, giving 211 objects, 125 goal and 86 soccer_ball |
 | Test images | Not recorded for the relabelled data. The earlier clone had 66 |
 | Training cycles and learning rate | 150 cycles at 0.001, with data augmentation |
